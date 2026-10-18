@@ -95,6 +95,11 @@ _SCRIPT_RE = re.compile(r"(?is)<(script|style)\b.*?</\1\s*>")
 _COMMENT_RE = re.compile(r"(?s)<!--.*?-->")
 _WS_RE = re.compile(r"[\s\u00a0\u200b\u200c\u200d\u2060\ufeff]+")
 _HTML_HINT_RE = re.compile(r"(?is)<\s*(html|body|div|p|span|head|a|br|meta)\b")
+# C0/C1 controls (except tab, LF, CR, which normalization folds), plus the bidi and
+# zero-width formatting characters that exist only to make one string render as another.
+_CONTROL_RE = re.compile(
+	"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]"
+)
 
 
 # --------------------------------------------------------------------------------------
@@ -314,7 +319,7 @@ def parse_rule(rule: str) -> tuple:
 	possible without a model, and it means the owner and the reader can disagree about what
 	they agreed to.
 	"""
-	text = normalize_text(rule)
+	text = require_plain(normalize_text(rule), "breach rule")
 	for kind in (RULE_ABSENT, RULE_PRESENT):
 		prefix = kind + ":"
 		if text.startswith(prefix):
@@ -429,6 +434,8 @@ def compare_activation(leader: dict, own: dict) -> bool:
 		return False
 	if bool(leader.get("subject_present")) is not True:
 		return False
+	if own.get("subject_present") is not True:
+		return False
 	if bool(leader.get("asserted")) is not bool(own.get("asserted")):
 		return False
 	if bool(leader.get("no_breach_now")) is not True:
@@ -467,8 +474,14 @@ def check_evidence(
 			"rule_span": "",
 		}
 	breached = literal_breached(rule_kind, rule_arg, text) if rule_kind != RULE_SEMANTIC else None
+	if breached is True:
+		verdict = VERDICT_BREACH
+	elif breached is False:
+		verdict = VERDICT_NO_BREACH
+	else:
+		verdict = "PENDING_MODEL"
 	return {
-		"verdict": VERDICT_NO_BREACH if breached is False else "PENDING_MODEL",
+		"verdict": verdict,
 		"quote_present": True,
 		"anchor_drifted": False,
 		"evidence_digest": digest_of(quote),
@@ -582,6 +595,9 @@ def validate_url(url: str) -> str:
 		raise gl.vm.UserError("[EXPECTED] url must be 9..%d characters" % MAX_URL)
 	if not url.startswith("https://"):
 		raise gl.vm.UserError("[EXPECTED] url must be https")
+	if re.search(r"\s", url) is not None:
+		raise gl.vm.UserError("[EXPECTED] url must not contain whitespace")
+	require_plain(url, "url")
 	rest = url[8:]
 	if len(rest) < 3:
 		raise gl.vm.UserError("[EXPECTED] url has no host")
@@ -625,6 +641,18 @@ def covenant_id_for(owner: str, label: str) -> str:
 def is_reasonable_intent(text: str) -> bool:
 	"""Guard against a promise that is pure whitespace or pure punctuation."""
 	return len([c for c in text if c.isalnum()]) >= 4
+
+
+def require_plain(text: str, what: str) -> str:
+	"""Refuse control and bidi characters in text the owner writes and readers will see.
+
+	Tab, LF and CR are already folded to spaces by normalization; what is left here are the
+	characters whose only purpose is to make one string display as another, plus NUL and the
+	other C0/C1 controls. They would otherwise travel into prompts and into the UI verbatim.
+	"""
+	if _CONTROL_RE.search(text) is not None:
+		raise gl.vm.UserError("[EXPECTED] %s must not contain control characters" % what)
+	return text
 
 
 # --------------------------------------------------------------------------------------
@@ -676,16 +704,16 @@ class Surety(gl.Contract):
 				% (MIN_LABEL, MAX_LABEL)
 			)
 		source_url = validate_url(source_url.strip())
-		subject = normalize_text(subject)
+		subject = require_plain(normalize_text(subject), "subject")
 		if len(subject) < 3 or len(subject) > MAX_SUBJECT:
 			raise gl.vm.UserError("[EXPECTED] subject must be 3..%d characters" % MAX_SUBJECT)
-		promise_text = normalize_text(promise_text)
+		promise_text = require_plain(normalize_text(promise_text), "promise")
 		if len(promise_text) < 8 or len(promise_text) > MAX_PROMISE:
 			raise gl.vm.UserError("[EXPECTED] promise must be 8..%d characters" % MAX_PROMISE)
 		if not is_reasonable_intent(promise_text):
 			raise gl.vm.UserError("[EXPECTED] promise must contain some words")
 		parse_rule(breach_rule)
-		permitted_changes = normalize_text(permitted_changes)
+		permitted_changes = require_plain(normalize_text(permitted_changes), "permitted changes")
 		if len(permitted_changes) > MAX_PERMITTED:
 			raise gl.vm.UserError("[EXPECTED] permitted changes must be at most %d characters" % MAX_PERMITTED)
 		beneficiary = validate_address(beneficiary)
@@ -892,24 +920,25 @@ class Surety(gl.Contract):
 			ev = check_evidence(text, subject, promise, rule_kind, rule_arg)
 			ev["anchor_drifted"] = bool(ev["evidence_digest"]) and ev["evidence_digest"] != anchor
 			if ev["verdict"] == "PENDING_MODEL":
+				# Only a semantic rule can reach this branch: check_evidence decides every
+				# literal rule outright. Loud rather than silent if that ever stops being true.
+				if rule_kind != RULE_SEMANTIC:
+					raise gl.vm.UserError("[EXPECTED] internal: a literal rule reached the model")
 				quote, _cov = anchored_quote(text, promise, subject)
-				if rule_kind == RULE_SEMANTIC:
-					raw = gl.nondet.exec_prompt(
-						breach_prompt(rule_arg, permitted, subject, quote),
-						response_format="json",
-					)
-					breached = _model_bool(raw, "breached")
-					span = _as_span(raw.get("span") if isinstance(raw, dict) else "")
-					if breached and (span == "" or span not in text):
-						raise gl.vm.UserError("[LLM_ERROR] rule span is not in the source")
-					if breached:
-						ev["verdict"] = VERDICT_BREACH
-						ev["rule_span"] = span
-					else:
-						ev["verdict"] = VERDICT_NO_BREACH
-						ev["rule_span"] = ""
+				raw = gl.nondet.exec_prompt(
+					breach_prompt(rule_arg, permitted, subject, quote),
+					response_format="json",
+				)
+				breached = _model_bool(raw, "breached")
+				span = _as_span(raw.get("span") if isinstance(raw, dict) else "")
+				if breached and (span == "" or span not in text):
+					raise gl.vm.UserError("[LLM_ERROR] rule span is not in the source")
+				if breached:
+					ev["verdict"] = VERDICT_BREACH
+					ev["rule_span"] = span
 				else:
 					ev["verdict"] = VERDICT_NO_BREACH
+					ev["rule_span"] = ""
 			ev["text"] = text
 			return ev
 
@@ -922,20 +951,19 @@ class Surety(gl.Contract):
 				own = check_evidence(text, subject, promise, rule_kind, rule_arg)
 				own["anchor_drifted"] = bool(own["evidence_digest"]) and own["evidence_digest"] != anchor
 				if own["verdict"] == "PENDING_MODEL":
+					if rule_kind != RULE_SEMANTIC:
+						raise gl.vm.UserError("[EXPECTED] internal: a literal rule reached the model")
 					quote, _cov = anchored_quote(text, promise, subject)
-					if rule_kind == RULE_SEMANTIC:
-						raw = gl.nondet.exec_prompt(
-							breach_prompt(rule_arg, permitted, subject, quote),
-							response_format="json",
-						)
-						breached = _model_bool(raw, "breached")
-						span = _as_span(raw.get("span") if isinstance(raw, dict) else "")
-						if breached and (span == "" or span not in text):
-							raise gl.vm.UserError("[LLM_ERROR] rule span is not in the source")
-						own["verdict"] = VERDICT_BREACH if breached else VERDICT_NO_BREACH
-						own["rule_span"] = span if breached else ""
-					else:
-						own["verdict"] = VERDICT_NO_BREACH
+					raw = gl.nondet.exec_prompt(
+						breach_prompt(rule_arg, permitted, subject, quote),
+						response_format="json",
+					)
+					breached = _model_bool(raw, "breached")
+					span = _as_span(raw.get("span") if isinstance(raw, dict) else "")
+					if breached and (span == "" or span not in text):
+						raise gl.vm.UserError("[LLM_ERROR] rule span is not in the source")
+					own["verdict"] = VERDICT_BREACH if breached else VERDICT_NO_BREACH
+					own["rule_span"] = span if breached else ""
 				own["text"] = text
 				return compare_check(leader_result.calldata, own)
 			except gl.vm.UserError:
