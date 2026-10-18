@@ -1,0 +1,20 @@
+[project]
+name = "surety"
+version = "0.1.0"
+description = "Surety — economic weight behind one public promise. A GenLayer protocol that proves a promise is present in one pinned HTTPS source before it goes active, then lets anyone ask for a re-check under the owner's own rule."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "genlayer-test[sim]==0.28.0",
+    "genvm-linter==0.10.0",
+    "requests==2.31.0",
+    "python-dotenv==1.0.1",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.uv]
+package = false

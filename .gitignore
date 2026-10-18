@@ -1,0 +1,27 @@
+# Secrets. A throwaway Studionet key lives in .env / .env.surety — never tracked, never printed.
+.env
+.env.*
+*.pem
+*.key
+keystore/
+keys/
+
+# Python
+.venv/
+.venv-deploy/
+__pycache__/
+*.pyc
+.pytest_cache/
+.gltest_cache/
+
+# Node / Next.js
+node_modules/
+web/.next/
+web/out/
+web/next-env.d.ts
+*.tsbuildinfo
+
+# Local tooling noise
+.genvm/
+artifacts/
+state/*.tmp
