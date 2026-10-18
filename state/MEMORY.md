@@ -9,7 +9,14 @@ Updated as work proceeds. If a session drops, start at "LEFT OFF".
 
 ## LEFT OFF
 
-Stage 0 in progress. See the bottom of this file for the live "next action" line.
+All seven stages are done and reported. The live instance is
+`0x45BCF7584F706835562C37Fd821C08748667Ce5f` on Studionet, code sha256
+`65fed909baa3c42ea61707fb3d7c84fe14a4f109a2440bf31ae1d204caf0a6eb`, proven byte-identical to
+`contracts/surety.py` by `scripts/verify_code.py`. Final numbers: **91 tests passed, 0 skips**;
+`genvm-lint check` 3 checks + validation + 10 methods (7 view, 3 write).
+
+If a session drops, the section order below is the chronology, and the end of this file is the
+latest state. `README.md` at the repository root is the front door.
 
 ---
 
