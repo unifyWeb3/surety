@@ -178,6 +178,7 @@ export default async function CovenantPage({
 					url={c.source_url}
 					quote={c.anchor_quote}
 					digest={c.anchor_digest}
+					pageDigest={c.anchor_text_digest}
 					empty={
 						c.status === "AWAITING_ACTIVATION" ? (
 							<p className="dim">
@@ -284,6 +285,23 @@ export default async function CovenantPage({
 								{c.last_check_evidence_digest === ""
 									? "none — this verdict rests on absence or on an unreadable source"
 									: `sha256:${c.last_check_evidence_digest}`}
+							</dd>
+							<dt>Page this check read</dt>
+							<dd className="mono break">
+								{c.last_check_text_digest === "" ? (
+									"none recorded — the source could not be read"
+								) : (
+									`sha256:${c.last_check_text_digest}`
+								)}
+								<p className="hint">
+									The digest of the whole page as this check actually received it, recomputed by
+									every validator. Compare it with your own fetch of the source ({" "}
+									<code className="mono small">python scripts/page_digest.py &lt;url&gt;</code> ) to
+									see whether the contract and you are reading the same copy: sources are served
+									through caches nobody here controls, so a check can read a copy that lags the
+									live page. That this field moved is how you see it; the verdict alone would not
+									tell you.
+								</p>
 							</dd>
 							{c.last_check_rule_span === "" ? null : (
 								<dt>Span the model cited</dt>

@@ -157,7 +157,7 @@ export function checkRule(input: string): { ok: true; value: string; shape: Rule
 	return {
 		ok: false,
 		problem:
-			"The rule language is closed. Start with literal-absent: (a breach is the text disappearing), literal-present: (a breach is the text appearing) or semantic: (a sentence a model votes on).",
+			"The rule language is closed. Start with literal-absent: (a breach is the text disappearing), literal-present: (a breach is the text appearing) or semantic: (a sentence a model votes on). A literal match ignores case, so you do not need to match the page's capitalisation.",
 	};
 }
 

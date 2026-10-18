@@ -45,9 +45,30 @@ JS-executing render is far less reproducible than a raw GET, and reproducibility
 needs.
 
 **The anchor.** At activation the contract stores `anchor_digest = sha256(normalize(evidence_quote))`
-and the quote itself (bounded to 600 characters) plus `anchor_quote_len`. This is the content
-fingerprint of the promise as it was physically found. It is small, stable, and — unlike a
-whole-page hash — every validator can recompute all of it.
+and the quote itself (bounded to 600 characters), plus the match kind (`VERBATIM` / `EQUIVALENT`) and
+the coverage band. This is the content fingerprint of the promise as it was physically found. It is
+small, stable, and — unlike a whole-page hash — every validator can recompute all of it.
+
+**The fetch digest.** Alongside the anchor, activation stores `anchor_text_digest =
+sha256(normalize(whole fetched text))`, and every check stores `last_check_text_digest` the same way.
+This one *is* a whole-page digest, and it is here for a different job: not to decide anything, but to
+let a reader detect whether the contract and the reader are looking at the same page. Fetch the URL
+yourself, normalize it the same way (`lib/chain.ts` does, and `scripts/page_digest.py` does), and
+compare. Equal digests mean the two fetches agree; different digests mean at least one of you is
+reading a cached or changed copy. It is validator-verified like every other stored field — each
+validator recomputes it and a leader reporting a different value is rejected — so it is evidence
+about the fetch rather than a claim about it.
+
+**Caches, and why that digest exists.** A fetch made by a validator (or by you) is often served by a
+CDN or proxy the contract does not control, and those caches hold copies. Observed live: a gist was
+edited, `curl` at the same URL returned the new text within a second, and three consecutive on-chain
+checks still read the old text with an unchanged `last_check_text_digest`. Nothing in the contract can
+force a cache to revalidate, and pretending otherwise would be a claim the design cannot support — so
+the design records the digest of what it actually read and lets anyone compare. For owners who want the
+anchor to be immune to this, the fix is at the source, not in the contract: pin a URL whose content by
+construction cannot change (GitHub's revision-pinned `/raw/<revision>/<file>` form, a commit permalink,
+a `?v=`-style static asset) and the digest will only ever move if the server itself is lying. Pinning a
+*moving* URL trades immutability for liveliness, and this paragraph is that trade written down.
 
 **What Surety cannot guarantee, stated plainly.**
 
@@ -63,6 +84,9 @@ whole-page hash — every validator can recompute all of it.
   refuses it as `PROMISE_ABSENT` rather than pretending.
 - It cannot stop the source from changing. It can only record, verifiably, that the anchored
   evidence region changed (`anchor_drifted`) or vanished (`PROMISE_ABSENT`).
+- It cannot force a cache to revalidate. A check may read a copy that lags the live page; the
+  stored `last_check_text_digest` is how a reader sees that, and pinning a content-stable URL is
+  how an owner avoids it. No "the page is unchanged" claim is made anywhere without that digest.
 - It cannot make a bond valuable. §5.
 
 **Drift, precisely defined.** There is no whole-page hash anywhere in the design. A hash that only
@@ -119,6 +143,8 @@ created in a state it would immediately call a breach.
 | `status` (enum) | equal to its own computed status |
 | `quote` | literal substring of the validator's own normalized text, ≤ 600 chars, contains the subject. "Verbatim" means verbatim **after normalization** (NFKC, whitespace folded) — not verbatim bytes, and the docs say so |
 | `evidence_digest` | equals `sha256(normalize(quote))` computed by the validator, **and** equals the leader's reported value |
+| `text_digest` | equals `sha256(normalize(the whole text the validator fetched))` — the leader cannot claim a fetch other than the one the validator made |
+| `last_check_text_digest` (check path) | same field, recomputed on the validator's own fetch of the same URL |
 | `match` (`VERBATIM`/`EQUIVALENT`) | equal; and the validator re-derives coverage and checks the band |
 | `subject_present` | equal; re-derived |
 | `asserted` | re-derived by the validator's own model call on the same bounded window |
@@ -173,9 +199,17 @@ The breach rule is not free prose. It must be one of three exact forms, validate
 
 | Form | Meaning | Decided by |
 |---|---|---|
-| `literal-absent:<text>` | breach iff `normalize(text)` is **not** present in the normalized source | deterministic, no model |
-| `literal-present:<text>` | breach iff `normalize(text)` **is** present in the normalized source | deterministic, no model |
+| `literal-absent:<text>` | breach iff `<text>` is **not** present in the normalized source | deterministic, no model |
+| `literal-present:<text>` | breach iff `<text>` **is** present in the normalized source | deterministic, no model |
 | `semantic:<natural language>` | the model applies the natural-language rule to a bounded excerpt around the subject | model + structural checks |
+
+Both sides are normalized the same way: NFKC, whitespace collapsed, and **case-folded**. Matching
+is case-insensitive because the owner writes a rule in their own lower case and a page capitalises
+its sentences; a case-sensitive comparison reports "that sentence is not on the page" for a
+sentence that is plainly there. This was not a theoretical concern — it was found on the live
+Studionet covenant, where a page saying "We may sell subscriber email addresses with third
+parties" did not match the rule `literal-present:we may sell subscriber email addresses with third
+parties`, and a breach that had happened was reported as no breach.
 
 Anything else is rejected at creation with `[EXPECTED] unsupported breach rule`. The point of the
 two literal forms is that a whole class of covenants — "this line stays on this page", "you never
@@ -297,10 +331,10 @@ Big integers cross the ABI as decimal strings (`u256` is not JSON-friendly in vi
 
 | Claim | How it was established |
 |---|---|
-| Activation requires the promise to be present in the real source | **Live**, against a real HTTPS source; a second covenant with a fabricated promise must refuse. |
-| A real content change flips the verdict to BREACH | **Live**: the source is edited between two checks. |
-| Deployed source == repo source | **Live**: `gen_getContractCode` + sha256 both sides. |
-| Validator rejection logic (fabricated quote, different content, injection) | **Hermetic only.** Direct mode runs the leader, so the validator functions are called directly from tests with hand-built leader results. This is stated in the README; it is not presented as a live consensus observation. |
+| Activation requires the promise to be present in the real source | **Live**, against a real HTTPS source on Studionet; a fabricated promise refuses. |
+| A real content change flips the verdict to BREACH | **Live**, against the current deployed contract: the source is edited between two checks and the verdict moves. |
+| Deployed source == repo source | **Live**: `gen_getContractCode` + sha256 both sides, re-run by `scripts/verify_code.py`. |
+| Validator rejection logic (fabricated quote, different content, different page digest, injection) | **Hermetic only.** Direct mode runs the leader, so the validator functions are called directly from tests with hand-built leader results. This is stated in the README; it is not presented as a live consensus observation. What *is* live is that three or four validators executed and agreed on the same value in each observed transaction (`scripts` print every vote). |
 | "Any model will agree" | **Not claimed at all.** The contract's consensus is on structural fields; the model's boolean only has to agree between the two nodes that ran. |
 | The bond has value | **Explicitly not claimed.** Recorded bond only. |
 
@@ -311,7 +345,7 @@ Big integers cross the ABI as decimal strings (`u256` is not JSON-friendly in vi
 ```
 contracts/surety.py          the intelligent contract
 tests/direct/                hermetic direct-mode suite (positive controls + refusals + red team)
-deploy/                      key-free deploy/read/prove scripts
+scripts/                     key-free deploy, verify, live-run and read scripts
 web/                         Next.js app, reads chain state over public RPC
 state/                       decision log + live evidence transcripts
 ```
@@ -338,3 +372,23 @@ Weaknesses found and deliberately kept (recorded, not hidden): `display:none` te
 present (no CSS engine, §7.11); redirects are invisible to the SDK so judgement is by content only
 (§7.3); `beneficiary` is the owner's own declaration and the beneficiary is never notified, so the
 UI labels it as declared rather than confirmed; GEN on Studionet carries no value (§5).
+
+---
+
+## 12. Stage 5 — what running it live found
+
+Both of these were found by running the deployed contract against a real page and reading the
+verdicts, not by re-reading the code. Each is fixed with the test that pins it. The suite that
+missed them passed 79/79 before they were fixed, which is the honest measure of what a hermetic
+suite is worth.
+
+| # | Finding | Resolution | Test |
+|---|---|---|---|
+| L1 | Literal rule matching was case-sensitive. The live covenant's rule `literal-present:we may sell subscriber email addresses with third parties` did not match a page that said "We may sell subscriber email addresses with third parties". A breach that had happened was reported as no breach. Cause: `arg in text` on a lower-case rule and a capitalised page. | `literal_breached` folds case on both sides, matching what `subject_present` already did. Documented in §4. | `test_literal_present_fires_on_a_page_that_capitalises_the_rule`, `test_literal_absent_does_not_fire_on_capitalisation_alone`, `test_activation_refuses_a_forbidden_sentence_whatever_its_case`, `test_literal_matching_folds_case_and_is_pinned_as_a_table` |
+| L2 | Nothing recorded which bytes a check actually read. A check served a stale copy from a cache was indistinguishable from a fresh check, and "the contract read this page" was not checkable by anyone else. Observed live: a gist was edited, `curl` returned the new text in under a second, and three consecutive on-chain checks still read the old text. | `anchor_text_digest` and `last_check_text_digest` store `sha256(normalize(fetched text))`, recomputed by every validator, exposed in `get_covenant`. Cache behaviour written down in §1 instead of wished away. | `test_activation_records_the_digest_of_the_whole_page_it_read`, `test_check_records_the_page_it_read_and_the_digest_moves_with_the_page`, `test_a_leader_that_reports_a_different_page_digest_is_rejected`, `test_page_digest_is_empty_for_nothing_and_stable_for_something` |
+
+Two honest refusals were produced live and are kept as evidence rather than tidied away: an
+activation refused because the covenant's `subject` was a paraphrase that did not appear in the
+page (`REFUSED_SUBJECT_ABSENT`), and one refused because the owner's rule already fired against the
+page (`REFUSED_ALREADY_IN_BREACH`), which is how the rule-direction mistake was caught before
+anyone relied on it.

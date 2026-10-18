@@ -137,6 +137,7 @@ class Covenant:
 	# Activation evidence. Validator obligations are in state/DESIGN.md section 2.
 	anchor_quote: str
 	anchor_digest: str
+	anchor_text_digest: str
 	anchor_match: str
 	anchor_coverage_band: str
 	activated_at: str
@@ -150,6 +151,7 @@ class Covenant:
 	last_check_quote_present: bool
 	last_check_anchor_drifted: bool
 	last_check_evidence_digest: str
+	last_check_text_digest: str
 	last_check_rule_span: str
 
 	breached_at: str
@@ -227,6 +229,19 @@ def token_set(text: str) -> set:
 def digest_of(quote: str) -> str:
 	"""The anchor digest. Applied to a slice of already-normalized text, so it is idempotent."""
 	return hashlib.sha256(normalize_text(quote).encode("utf-8")).hexdigest()
+
+
+def page_digest(text: str) -> str:
+	"""sha256 of the whole normalized text a fetch actually returned, or "" for nothing fetched.
+
+	Recorded with every activation and every check so that a reader can fetch the same URL,
+	normalize it the same way, and compare digests. Without this field, "the contract read this
+	page" is not checkable by anyone else, and a check that was served a stale copy from a cache
+	would be invisible. The text is already normalized when it arrives here, so this is idempotent.
+	"""
+	if text == "":
+		return ""
+	return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def coverage_band(value: float) -> str:
@@ -348,7 +363,18 @@ def parse_rule(rule: str) -> tuple:
 
 
 def literal_breached(kind: str, arg: str, text: str) -> bool:
-	present = arg in text
+	"""Is the rule broken? Pure string containment.
+
+	Case-folded on purpose. A literal rule is written by the owner in their own lower case and
+	matched against a page that capitalises its sentences, so a case-sensitive comparison would
+	report "the text is not there" for text that is right there. Found live: a page saying
+	"We may sell subscriber email addresses with third parties" did not match the rule
+	``literal-present:we may sell subscriber email addresses with third parties``, and a breach
+	that had happened was reported as no breach. Whitespace and NFKC folding still apply, because
+	both sides are normalized before they arrive here (the rule by ``parse_rule``, the page by
+	``text_of``).
+	"""
+	present = arg.lower() in text.lower()
 	if kind == RULE_ABSENT:
 		return not present
 	return present
@@ -387,6 +413,7 @@ def activation_evidence(
 			"status": STATUS_REFUSED_UNREACHABLE,
 			"quote": "",
 			"evidence_digest": "",
+			"text_digest": "",
 			"match": "",
 			"coverage_band": COVERAGE_BAND_LOW,
 			"subject_present": False,
@@ -400,6 +427,7 @@ def activation_evidence(
 			"status": STATUS_REFUSED_SUBJECT if not subject_present else STATUS_REFUSED_ABSENT,
 			"quote": "",
 			"evidence_digest": "",
+			"text_digest": page_digest(text),
 			"match": "",
 			"coverage_band": band,
 			"subject_present": subject_present,
@@ -410,6 +438,7 @@ def activation_evidence(
 		"status": STATUS_REFUSED_BREACH if breached_now is True else "PENDING_MODEL",
 		"quote": quote,
 		"evidence_digest": digest_of(quote),
+		"text_digest": page_digest(text),
 		"match": MATCH_VERBATIM if band == COVERAGE_BAND_EXACT else MATCH_EQUIVALENT,
 		"coverage_band": band,
 		"subject_present": True,
@@ -430,13 +459,15 @@ def compare_activation(leader: dict, own: dict) -> bool:
 	status = own.get("status")
 	if status != "ACTIVATED":
 		return True
-	for key in ("quote", "evidence_digest", "match", "coverage_band"):
+	for key in ("quote", "evidence_digest", "text_digest", "match", "coverage_band"):
 		if leader.get(key) != own.get(key):
 			return False
 	quote = own.get("quote") or ""
 	if quote == "" or len(quote) > MAX_QUOTE:
 		return False
 	if digest_of(quote) != own.get("evidence_digest"):
+		return False
+	if own.get("text_digest") != page_digest(own.get("text") or ""):
 		return False
 	if bool(leader.get("subject_present")) is not True:
 		return False
@@ -461,6 +492,7 @@ def check_evidence(
 			"quote_present": False,
 			"anchor_drifted": False,
 			"evidence_digest": "",
+			"text_digest": "",
 			"subject_present": False,
 			"rule_span": "",
 		}
@@ -476,6 +508,7 @@ def check_evidence(
 			"quote_present": False,
 			"anchor_drifted": False,
 			"evidence_digest": "",
+			"text_digest": page_digest(text),
 			"subject_present": subject_present,
 			"rule_span": "",
 		}
@@ -491,6 +524,7 @@ def check_evidence(
 		"quote_present": True,
 		"anchor_drifted": False,
 		"evidence_digest": digest_of(quote),
+		"text_digest": page_digest(text),
 		"subject_present": True,
 		"rule_span": "",
 	}
@@ -511,6 +545,10 @@ def compare_check(leader: dict, own: dict) -> bool:
 		if bool(leader.get(key)) is not bool(own.get(key)):
 			return False
 	if leader.get("evidence_digest") != own.get("evidence_digest"):
+		return False
+	if leader.get("text_digest") != own.get("text_digest"):
+		return False
+	if own.get("text_digest") != page_digest(own.get("text") or ""):
 		return False
 	if own.get("verdict") == VERDICT_NO_BREACH:
 		if leader.get("rule_span") or own.get("rule_span"):
@@ -754,6 +792,7 @@ class Surety(gl.Contract):
 			status=STATUS_AWAITING,
 			anchor_quote="",
 			anchor_digest="",
+			anchor_text_digest="",
 			anchor_match="",
 			anchor_coverage_band="",
 			activated_at="",
@@ -765,6 +804,7 @@ class Surety(gl.Contract):
 			last_check_quote_present=False,
 			last_check_anchor_drifted=False,
 			last_check_evidence_digest="",
+			last_check_text_digest="",
 			last_check_rule_span="",
 			breached_at="",
 		)
@@ -876,6 +916,7 @@ class Surety(gl.Contract):
 			covenant.status = STATUS_ACTIVE
 			covenant.anchor_quote = str(result.get("quote") or "")
 			covenant.anchor_digest = str(result.get("evidence_digest") or "")
+			covenant.anchor_text_digest = str(result.get("text_digest") or "")
 			covenant.anchor_match = str(result.get("match") or "")
 			covenant.anchor_coverage_band = str(result.get("coverage_band") or "")
 			covenant.activated_at = gl.message_raw["datetime"]
@@ -995,6 +1036,7 @@ class Surety(gl.Contract):
 		covenant.last_check_quote_present = bool(result.get("quote_present"))
 		covenant.last_check_anchor_drifted = bool(result.get("anchor_drifted"))
 		covenant.last_check_evidence_digest = str(result.get("evidence_digest") or "")
+		covenant.last_check_text_digest = str(result.get("text_digest") or "")
 		covenant.last_check_rule_span = str(result.get("rule_span") or "")
 		self.check_count = u256(int(self.check_count) + 1)
 
@@ -1135,6 +1177,7 @@ class Surety(gl.Contract):
 			"is_breached": covenant.status == STATUS_BREACHED,
 			"anchor_quote": covenant.anchor_quote,
 			"anchor_digest": covenant.anchor_digest,
+			"anchor_text_digest": covenant.anchor_text_digest,
 			"anchor_match": covenant.anchor_match,
 			"anchor_coverage_band": covenant.anchor_coverage_band,
 			"activated_at": covenant.activated_at,
@@ -1146,6 +1189,7 @@ class Surety(gl.Contract):
 			"last_check_quote_present": covenant.last_check_quote_present,
 			"last_check_anchor_drifted": covenant.last_check_anchor_drifted,
 			"last_check_evidence_digest": covenant.last_check_evidence_digest,
+			"last_check_text_digest": covenant.last_check_text_digest,
 			"last_check_rule_span": covenant.last_check_rule_span,
 			"breached_at": covenant.breached_at,
 		}

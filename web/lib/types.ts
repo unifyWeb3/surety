@@ -41,6 +41,7 @@ export type Covenant = {
 	is_breached: boolean;
 	anchor_quote: string;
 	anchor_digest: string;
+	anchor_text_digest: string;
 	anchor_match: Match;
 	anchor_coverage_band: CoverageBand;
 	activated_at: string;
@@ -52,6 +53,7 @@ export type Covenant = {
 	last_check_quote_present: boolean;
 	last_check_anchor_drifted: boolean;
 	last_check_evidence_digest: string;
+	last_check_text_digest: string;
 	last_check_rule_span: string;
 	breached_at: string;
 };
@@ -141,6 +143,7 @@ export function toCovenant(raw: Record<string, unknown>): Covenant {
 		is_breached: yes(raw.is_breached),
 		anchor_quote: text(raw.anchor_quote ?? "", "anchor_quote"),
 		anchor_digest: text(raw.anchor_digest ?? "", "anchor_digest"),
+		anchor_text_digest: text(raw.anchor_text_digest ?? "", "anchor_text_digest"),
 		anchor_match: text(raw.anchor_match ?? "", "anchor_match") as Match,
 		anchor_coverage_band: text(raw.anchor_coverage_band ?? "", "anchor_coverage_band") as CoverageBand,
 		activated_at: text(raw.activated_at ?? "", "activated_at"),
@@ -152,6 +155,7 @@ export function toCovenant(raw: Record<string, unknown>): Covenant {
 		last_check_quote_present: yes(raw.last_check_quote_present),
 		last_check_anchor_drifted: yes(raw.last_check_anchor_drifted),
 		last_check_evidence_digest: text(raw.last_check_evidence_digest ?? "", "last_check_evidence_digest"),
+		last_check_text_digest: text(raw.last_check_text_digest ?? "", "last_check_text_digest"),
 		last_check_rule_span: text(raw.last_check_rule_span ?? "", "last_check_rule_span"),
 		breached_at: text(raw.breached_at ?? "", "breached_at"),
 	};

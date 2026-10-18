@@ -22,6 +22,12 @@ def test_validator_agrees_when_it_sees_the_same_page(direct_vm, contract):
 	assert direct_vm.run_validator() is True
 
 
+def page_fields(surety_mod, body: str = PAGE) -> dict:
+	"""The two page-digest fields a real leader reports, for the page the mocks serve."""
+	text = surety_mod.normalize_text(body)
+	return {"text": text, "text_digest": surety_mod.page_digest(text)}
+
+
 def test_validator_rejects_when_its_own_fetch_differs(direct_vm, contract):
 	"""The leader saw the promise; the validator's fetch does not contain it. No agreement."""
 	cid = create(direct_vm, contract)
@@ -52,6 +58,7 @@ def test_validator_rejects_a_fabricated_quote(direct_vm, contract):
 		"asserted": True,
 		"no_breach_now": True,
 	}
+	forged.update(page_fields(mod))
 	assert direct_vm.run_validator(leader_result=forged) is False
 
 
@@ -71,6 +78,7 @@ def test_validator_rejects_a_self_inconsistent_digest(direct_vm, contract):
 		"asserted": True,
 		"no_breach_now": True,
 	}
+	forged.update(page_fields(__import__("sys").modules["_contract_surety"]))
 	assert direct_vm.run_validator(leader_result=forged) is False
 
 
@@ -93,6 +101,7 @@ def test_validator_rejects_a_leader_that_claims_no_breach_when_its_own_rule_fire
 		"asserted": True,
 		"no_breach_now": True,
 	}
+	forged.update(page_fields(__import__("sys").modules["_contract_surety"]))
 	# The validator's own fetch has the forbidden sentence, so its own no_breach_now is False.
 	serve(direct_vm, PAGE + "Acme Protocol may increase the base transfer fee at any time. ")
 	assert direct_vm.run_validator(leader_result=forged) is False
@@ -138,10 +147,12 @@ def test_compare_activation_requires_exact_equality_on_every_evidence_field(sure
 		"asserted": True,
 		"no_breach_now": True,
 	}
+	good.update(page_fields(surety_mod))
 	assert surety_mod.compare_activation(good, dict(good)) is True
 	for field, wrong in (
 		("quote", PROMISE + " and more"),
 		("evidence_digest", "1" * 64),
+		("text_digest", "1" * 64),
 		("match", "EQUIVALENT"),
 		("coverage_band", "COVERAGE_GE_0_90"),
 		("status", "REFUSED_PROMISE_ABSENT"),
@@ -167,12 +178,12 @@ def test_compare_activation_ignores_extra_leader_fields_but_still_checks_the_cor
 		"no_breach_now": True,
 		"confidence": 0.99,
 	}
+	leader.update(page_fields(surety_mod))
 	own = dict(leader)
 	assert surety_mod.compare_activation(leader, own) is True
 
 
 def test_compare_check_requires_a_findable_span_for_a_breach(surety_mod):
-	text = surety_mod.normalize_text(PAGE)
 	own = {
 		"verdict": "BREACH",
 		"quote_present": True,
@@ -180,8 +191,8 @@ def test_compare_check_requires_a_findable_span_for_a_breach(surety_mod):
 		"evidence_digest": surety_mod.digest_of(PROMISE),
 		"subject_present": True,
 		"rule_span": "Fees are reviewed annually",
-		"text": text,
 	}
+	own.update(page_fields(surety_mod))
 	assert surety_mod.compare_check(own, own) is True
 
 	not_on_page = dict(own)
@@ -205,8 +216,8 @@ def test_compare_check_rejects_a_span_on_a_no_breach_verdict(surety_mod):
 		"evidence_digest": surety_mod.digest_of(PROMISE),
 		"subject_present": True,
 		"rule_span": "",
-		"text": surety_mod.normalize_text(PAGE),
 	}
+	own.update(page_fields(surety_mod))
 	assert surety_mod.compare_check(own, own) is True
 	smuggled = dict(own)
 	smuggled["rule_span"] = "Fees are reviewed annually"
@@ -221,14 +232,15 @@ def test_compare_check_covers_every_verdict_field(surety_mod):
 		"evidence_digest": "",
 		"subject_present": False,
 		"rule_span": "",
-		"text": surety_mod.normalize_text(PAGE),
 	}
+	own.update(page_fields(surety_mod))
 	assert surety_mod.compare_check(own, own) is True
 	for field, wrong in (
 		("verdict", "NO_BREACH"),
 		("quote_present", True),
 		("anchor_drifted", True),
 		("evidence_digest", "2" * 64),
+		("text_digest", "2" * 64),
 		("subject_present", True),
 	):
 		other = dict(own)

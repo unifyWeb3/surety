@@ -49,3 +49,19 @@ cannot afford.
 - `beneficiary` is labelled as the owner's declaration, because that is all it is.
 - The bond is labelled as recorded, never held. There is no payout path in the contract.
 - A failed read is shown as a failed read, with the RPC's own words.
+- Two digests are shown, and they are not the same claim. The **quote** digest is what the decision
+  rests on. The **page** digest (`anchor_text_digest`, `last_check_text_digest`) is the whole text a
+  fetch actually returned, and it decides nothing — it exists so you can fetch the same URL yourself
+  and compare, because sources are served through caches nobody here controls. Reproduce it with
+  `python scripts/page_digest.py <url> --compare <digest>`.
+- This app does no server-side fetching of covenant sources, on purpose. A route that fetched an
+  owner-supplied URL would be a request-forgery vector (loopback, link-local, cloud metadata) for a
+  feature that a copyable command already provides.
+
+## What is verified, and how
+
+The app was loaded in a real browser against the live contract, against an empty configuration, and
+against an address with no contract at it; the failures it renders were produced by actually doing
+that, not by describing them. It has not been loaded against a covenant in every status, so the
+status vocabulary is exhaustive by construction (an unrecognised status throws instead of being
+displayed) rather than by having observed each one live.

@@ -175,6 +175,7 @@ def test_activation_records_only_verified_evidence(direct_vm, contract):
 		"is_breached",
 		"anchor_quote",
 		"anchor_digest",
+		"anchor_text_digest",
 		"anchor_match",
 		"anchor_coverage_band",
 		"activated_at",
@@ -186,6 +187,7 @@ def test_activation_records_only_verified_evidence(direct_vm, contract):
 		"last_check_quote_present",
 		"last_check_anchor_drifted",
 		"last_check_evidence_digest",
+		"last_check_text_digest",
 		"last_check_rule_span",
 		"breached_at",
 	}

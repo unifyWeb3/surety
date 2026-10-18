@@ -170,3 +170,40 @@ asserted to take no arbitrary address; "verbatim" narrowed to "verbatim after no
 ## Numbers at the end of Stage 3
 - `79 passed` (`.venv/bin/python -m pytest tests/direct/ -q`), 0 skips, 0 xfails.
 - `genvm-lint check`: 3 checks passed, validation passed, 10 methods (7 view, 3 write).
+
+# Stage 5 — live on Studionet
+
+## Deploy facts (learned, not guessable)
+- `genlayer_py` 0.9.0 (the version `genlayer-test==0.28.0` pins) **cannot** be used to deploy: it
+  is pinned by the test harness. A second venv `.venv-deploy` (genlayer-py 0.18.0) is used for
+  everything that talks to the chain. Both directories are gitignored.
+- `get_transaction(transaction_hash=...)` in 0.18.0 takes no `transaction_hash_variant`.
+  `wait_for_transaction_receipt(..., status=ACCEPTED, interval=3000, retries=10)` is what the SDK
+  offers; the scripts poll by hand instead so the 120-second ceiling is explicit.
+- The receipt's numeric `status` field is **not** the ordered `TransactionStatus` enum: a receipt
+  with numeric `status == 7` had `status_name == "FINALIZED"`. Only `status_name` is trusted.
+- **A successful round is `status_name == ACCEPTED` with `result_name == MAJORITY_AGREE`**, and it
+  is normal for one or two validators to report `ERROR vote=idle (VALIDATOR_QUORUM_REACHED)` —
+  they were cancelled once quorum was reached. Treating `ACCEPTED` as failure (the first version
+  of `scripts/_surety.py` did) rejects every successful transaction.
+- A deploy's new contract address is the transaction's `to_address` / `recipient`.
+- `gen_getContractCode` on Studionet takes `params=[address]` and returns **base64**.
+- `fund_account()` in genlayer-py refuses any chain that is not localnet, so funding is a direct
+  `sim_fundAccount` request against the Studio RPC; the raw node response is printed and recorded.
+
+## Live findings (fixed, with tests)
+- **L1 case-sensitive literal matching.** The live covenant's rule
+  `literal-present:we may sell subscriber email addresses with third parties` did not match a page
+  saying "We may sell subscriber email addresses with third parties". A breach that had happened
+  was reported as no breach. Fixed by case folding both sides in `literal_breached`.
+- **L2 no record of which bytes were read.** `anchor_text_digest` / `last_check_text_digest` now
+  store `sha256(normalize(fetched text))`, validator-recomputed, so a reader can compare their own
+  fetch with the contract's.
+- **Observed cache lag.** After editing the gist, `curl` at the same URL returned the new text
+  within a second while three consecutive on-chain checks still read the old text (identical
+  `last_check_text_digest`, identical anchor digest). Written down in `state/DESIGN.md` §1 rather
+  than worked around: the digest makes it visible, a revision-pinned URL avoids it.
+- **The rule language caught a real mistake.** An inverted rule (`literal-absent:` where
+  `literal-present:` was meant) was refused at activation as `REFUSED_ALREADY_IN_BREACH`, so it
+  could not sit on the live contract looking compliant. The composer on `/new` states the
+  direction in plain words for the same reason.
