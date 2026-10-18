@@ -8,7 +8,7 @@ falsified on its own.
 """
 
 import pytest
-from conftest import PAGE, PAGE_BREACHED, PROMISE, create, serve
+from conftest import PAGE, PAGE_BREACHED, PROMISE, create, page_fields, serve
 
 # --------------------------------------------------------------------------- real validator runs
 
@@ -20,12 +20,6 @@ def test_validator_agrees_when_it_sees_the_same_page(direct_vm, contract):
 	# Same world, validator re-fetches: agree.
 	serve(direct_vm, PAGE)
 	assert direct_vm.run_validator() is True
-
-
-def page_fields(surety_mod, body: str = PAGE) -> dict:
-	"""The two page-digest fields a real leader reports, for the page the mocks serve."""
-	text = surety_mod.normalize_text(body)
-	return {"text": text, "text_digest": surety_mod.page_digest(text)}
 
 
 def test_validator_rejects_when_its_own_fetch_differs(direct_vm, contract):
@@ -186,6 +180,7 @@ def test_compare_activation_ignores_extra_leader_fields_but_still_checks_the_cor
 def test_compare_check_requires_a_findable_span_for_a_breach(surety_mod):
 	own = {
 		"verdict": "BREACH",
+		"rule_kind": "semantic",
 		"quote_present": True,
 		"anchor_drifted": False,
 		"evidence_digest": surety_mod.digest_of(PROMISE),
@@ -211,6 +206,7 @@ def test_compare_check_requires_a_findable_span_for_a_breach(surety_mod):
 def test_compare_check_rejects_a_span_on_a_no_breach_verdict(surety_mod):
 	own = {
 		"verdict": "NO_BREACH",
+		"rule_kind": "literal-present",
 		"quote_present": True,
 		"anchor_drifted": False,
 		"evidence_digest": surety_mod.digest_of(PROMISE),
@@ -227,6 +223,7 @@ def test_compare_check_rejects_a_span_on_a_no_breach_verdict(surety_mod):
 def test_compare_check_covers_every_verdict_field(surety_mod):
 	own = {
 		"verdict": "PROMISE_ABSENT",
+		"rule_kind": "literal-absent",
 		"quote_present": False,
 		"anchor_drifted": False,
 		"evidence_digest": "",
@@ -237,6 +234,7 @@ def test_compare_check_covers_every_verdict_field(surety_mod):
 	assert surety_mod.compare_check(own, own) is True
 	for field, wrong in (
 		("verdict", "NO_BREACH"),
+		("rule_kind", "semantic"),
 		("quote_present", True),
 		("anchor_drifted", True),
 		("evidence_digest", "2" * 64),

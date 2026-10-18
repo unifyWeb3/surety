@@ -11,7 +11,17 @@ L2 -- nothing recorded which bytes a check actually read, so a reader could not 
      cache was invisible.
 """
 
-from conftest import PAGE, PAGE_BREACHED, PAGE_PROMISE_PLUS_BREACH, PROMISE, active_covenant, advance, create, serve
+from conftest import (
+	PAGE,
+	PAGE_BREACHED,
+	PAGE_PROMISE_PLUS_BREACH,
+	PROMISE,
+	active_covenant,
+	advance,
+	create,
+	page_fields,
+	serve,
+)
 
 # The promise sentence untouched, one unrelated sentence reworded. A cosmetic change of the kind
 # the owner's `permitted_changes` allows, so it must not become a breach by itself.
@@ -155,7 +165,13 @@ def test_check_records_the_page_it_read_and_the_digest_moves_with_the_page(suret
 
 
 def test_a_leader_that_reports_a_different_page_digest_is_rejected(direct_vm, contract):
-	cid = active_covenant(direct_vm, contract, label="digest-forgery", absence_is_breach=False)
+	cid = active_covenant(
+		direct_vm,
+		contract,
+		label="digest-forgery",
+		breach_rule="literal-absent:base transfer fee at 0.10 percent",
+		absence_is_breach=False,
+	)
 
 	serve(direct_vm, PAGE)
 	assert contract.request_check(cid) == "NO_BREACH"
@@ -165,6 +181,7 @@ def test_a_leader_that_reports_a_different_page_digest_is_rejected(direct_vm, co
 	mod = sys.modules["_contract_surety"]
 	honest = {
 		"verdict": "NO_BREACH",
+		"rule_kind": "literal-absent",
 		"quote_present": True,
 		"anchor_drifted": False,
 		"evidence_digest": mod.digest_of(PROMISE),
@@ -190,3 +207,122 @@ def test_page_digest_is_empty_for_nothing_and_stable_for_something(surety_mod):
 	assert surety_mod.page_digest(PAGE) == surety_mod.page_digest(PAGE)
 	assert surety_mod.page_digest(PAGE) != surety_mod.page_digest(PAGE_MODIFIED)
 	assert len(surety_mod.page_digest(PAGE)) == 64
+
+
+# ------------------------------------------------------------------ L3: a literal breach must be
+# ------------------------------------------------------------------ agreement-reachable
+#
+# Found live, twice, as MAJORITY_DISAGREE on a page that really had gained the forbidden clause.
+# compare_check demanded a non-empty rule_span for every BREACH, but a literal breach has no span
+# to cite -- the string comparison is the evidence. The leader therefore reported a truthful
+# empty span and every validator rejected it, so a literal rule could never reach BREACH on chain.
+# The hermetic suite missed it because direct mode runs the leader only, so a literal breach was
+# only ever asserted at the point where the leader writes, never at the point where a validator
+# agrees.
+
+
+def test_a_literal_breach_is_agreeable_with_an_empty_span(surety_mod):
+	own = {
+		"verdict": "BREACH",
+		"rule_kind": "literal-present",
+		"quote_present": True,
+		"anchor_drifted": False,
+		"evidence_digest": surety_mod.digest_of(PROMISE),
+		"subject_present": True,
+		"rule_span": "",
+	}
+	own.update(page_fields(surety_mod))
+	assert surety_mod.compare_check(own, own) is True
+
+	# A literal breach that tries to bring a citation anyway is rejected: there is nothing that
+	# could have produced it, so it would be a claim, not evidence.
+	with_span = dict(own)
+	with_span["rule_span"] = "Fees are reviewed annually"
+	assert surety_mod.compare_check(with_span, own) is False
+
+
+def test_a_semantic_breach_is_agreeable_only_with_a_findable_span(surety_mod):
+	own = {
+		"verdict": "BREACH",
+		"rule_kind": "semantic",
+		"quote_present": True,
+		"anchor_drifted": False,
+		"evidence_digest": surety_mod.digest_of(PROMISE),
+		"subject_present": True,
+		"rule_span": "Fees are reviewed annually",
+	}
+	own.update(page_fields(surety_mod))
+	assert surety_mod.compare_check(own, own) is True
+
+	no_span = dict(own)
+	no_span["rule_span"] = ""
+	assert surety_mod.compare_check(no_span, own) is False
+
+	not_findable = dict(own)
+	not_findable["rule_span"] = "a sentence that is not on this page"
+	assert surety_mod.compare_check(not_findable, own) is False
+
+
+def test_the_rule_kind_is_compared_not_assumed(surety_mod):
+	"""A leader claiming a different rule shape than the covenant holds is rejected."""
+	own = {
+		"verdict": "BREACH",
+		"rule_kind": "literal-present",
+		"quote_present": True,
+		"anchor_drifted": False,
+		"evidence_digest": surety_mod.digest_of(PROMISE),
+		"subject_present": True,
+		"rule_span": "",
+	}
+	own.update(page_fields(surety_mod))
+	lying = dict(own)
+	lying["rule_kind"] = "semantic"
+	assert surety_mod.compare_check(lying, own) is False
+
+
+def test_validator_agrees_with_a_real_literal_breach(direct_vm, contract):
+	"""The live failure, reproduced at the point where it actually happened.
+
+	The leader's result here is rebuilt by the contract's own pure function on the same text the
+	mocks serve, which is what the leader return value is, and then handed to the real validator
+	closure through run_validator.
+	"""
+	import sys
+
+	mod = sys.modules["_contract_surety"]
+	cid = active_covenant(
+		direct_vm,
+		contract,
+		label="validator-literal-breach",
+		breach_rule="literal-present:" + FORBIDDEN_LOWER,
+		absence_is_breach=False,
+	)
+
+	serve(direct_vm, PAGE_PROMISE_PLUS_BREACH)
+	text = mod.normalize_text(PAGE_PROMISE_PLUS_BREACH)
+	leader = mod.check_evidence(
+		text,
+		"Acme Protocol",
+		PROMISE,
+		"literal-present",
+		FORBIDDEN_LOWER,
+	)
+	leader["anchor_drifted"] = leader["evidence_digest"] != contract.get_covenant(cid)["anchor_digest"]
+	leader["text"] = text
+	assert leader["verdict"] == "BREACH"
+	assert leader["rule_span"] == ""
+
+	# Run the check first, so the captured closure is the check's validator and not activation's.
+	assert contract.request_check(cid) == "BREACH"
+
+	# Same world for the validator: it must agree. This is the assertion that failed live.
+	serve(direct_vm, PAGE_PROMISE_PLUS_BREACH)
+	assert direct_vm.run_validator(leader_result=leader) is True
+
+	# And the on-chain record keeps the breach and the empty span together.
+	record = contract.get_covenant(cid)
+	assert record["status"] == "BREACHED"
+	assert record["last_check_verdict"] == "BREACH"
+	assert record["last_check_quote_present"] is True
+	assert record["last_check_rule_span"] == ""
+	assert record["last_check_evidence_digest"] == record["anchor_digest"]

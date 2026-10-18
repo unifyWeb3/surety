@@ -84,6 +84,16 @@ def url_pattern(url: str) -> str:
 	return "^" + re.escape(url) + "$"
 
 
+def page_fields(surety_mod, body: str = PAGE) -> dict:
+	"""The two page-digest fields a real leader reports, for the page the mocks serve.
+
+	``text_digest`` must be the digest of ``text``, so tests that build a leader result by hand use
+	this instead of typing the pair out and getting it inconsistent.
+	"""
+	text = surety_mod.normalize_text(body)
+	return {"text": text, "text_digest": surety_mod.page_digest(text)}
+
+
 def mock_page(direct_vm, body: str, status: int = 200, url: str = SOURCE) -> None:
 	direct_vm.mock_web(url_pattern(url), {"status": status, "body": body})
 

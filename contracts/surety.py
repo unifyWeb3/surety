@@ -489,6 +489,7 @@ def check_evidence(
 	if text == "":
 		return {
 			"verdict": VERDICT_UNREACHABLE,
+			"rule_kind": rule_kind,
 			"quote_present": False,
 			"anchor_drifted": False,
 			"evidence_digest": "",
@@ -505,6 +506,7 @@ def check_evidence(
 		# is no longer anchored (quote_present false).
 		return {
 			"verdict": VERDICT_PROMISE_ABSENT,
+			"rule_kind": rule_kind,
 			"quote_present": False,
 			"anchor_drifted": False,
 			"evidence_digest": "",
@@ -521,6 +523,7 @@ def check_evidence(
 		verdict = "PENDING_MODEL"
 	return {
 		"verdict": verdict,
+		"rule_kind": rule_kind,
 		"quote_present": True,
 		"anchor_drifted": False,
 		"evidence_digest": digest_of(quote),
@@ -533,13 +536,19 @@ def check_evidence(
 def compare_check(leader: dict, own: dict) -> bool:
 	"""Validator rule for a re-check. Pure; every field is recomputed by the validator.
 
-	When the verdict is BREACH under a semantic rule the leader must also name a span, and that
-	span must be findable in the validator's own normalized text. A span nobody else can find is
-	not evidence, so it is rejected rather than stored.
+	How a BREACH must be evidenced depends on how it was decided, so the rule kind travels with
+	both results and is compared. Under a *semantic* rule the leader must name a span and the
+	validator must find it in its own normalized text; a span nobody else can find is not
+	evidence, so it is rejected rather than stored. Under a *literal* rule the breach is proven
+	by the string comparison itself and there is no span to cite — requiring one made a literal
+	breach impossible to agree on, which is what a live MAJORITY_DISAGREE exposed: the leader
+	returned `rule_span: ""`, which is the only truthful value, and every validator rejected it.
 	"""
 	if not isinstance(leader, dict) or not isinstance(own, dict):
 		return False
 	if leader.get("verdict") != own.get("verdict"):
+		return False
+	if leader.get("rule_kind") != own.get("rule_kind"):
 		return False
 	for key in ("quote_present", "anchor_drifted", "subject_present"):
 		if bool(leader.get(key)) is not bool(own.get(key)):
@@ -555,10 +564,18 @@ def compare_check(leader: dict, own: dict) -> bool:
 			return False
 	if own.get("verdict") == VERDICT_BREACH:
 		span = leader.get("rule_span") or ""
-		if span == "" or len(span) > MAX_SPAN:
-			return False
-		if span not in own.get("text", ""):
-			return False
+		if own.get("rule_kind") == RULE_SEMANTIC:
+			if span == "" or len(span) > MAX_SPAN:
+				return False
+			if span not in own.get("text", ""):
+				return False
+		else:
+			# A literal breach is evidenced by the comparison, not by a citation. A span
+			# reported here would be an unverifiable claim dressed up as evidence.
+			if span != "":
+				return False
+			if own.get("rule_span"):
+				return False
 	return True
 
 

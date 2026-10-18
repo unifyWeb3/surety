@@ -9,6 +9,7 @@ Usage:  python scripts/deploy.py
 
 from __future__ import annotations
 
+import argparse
 import base64
 import hashlib
 import sys
@@ -21,7 +22,9 @@ import _surety  # noqa: E402
 CONTRACT = _surety.ROOT / "contracts" / "surety.py"
 
 # Outcomes that mean the validators agreed. Anything else is a consensus failure.
-AGREED = {"MAJORITY_AGREE", "MAJORITY_AGREEMENT", "AGREE"}
+AGREED = _surety.AGREED
+# ACCEPTED is the ordinary stopping point for a non-appealable round: agreed, and settled.
+SUCCESS_STATES = _surety.SUCCESS_STATES
 
 
 def set_contract_in_env(address: str) -> None:
@@ -52,20 +55,33 @@ def main() -> int:
 	source_bytes = source.encode()
 	conn = _surety.client()
 
+	parser = argparse.ArgumentParser()
+	parser.add_argument(
+		"--tx",
+		default=None,
+		help="verify and record an already-sent deploy instead of sending a new one",
+	)
+	args = parser.parse_args()
+
 	print("contract file: %s" % CONTRACT)
 	print("  bytes:  %d" % len(source_bytes))
 	print("  sha256: %s" % hashlib.sha256(source_bytes).hexdigest())
 	print("deployer address: %s" % _surety.address())
 	print("rpc: %s" % _surety.rpc_url())
 
-	tx_hash = conn.deploy_contract(code=source)
-	print("deploy transaction: %s" % tx_hash)
+	if args.tx:
+		tx_hash = args.tx
+		print("resuming deploy transaction: %s" % tx_hash)
+	else:
+		tx_hash = conn.deploy_contract(code=source)
+		print("deploy transaction: %s" % tx_hash)
 
 	transaction = _surety.wait(tx_hash, label="deploy")
 	status = _surety.status_of(transaction)
 	outcome = _surety.outcome_of(transaction)
 	print("status: %s / outcome: %s" % (status, outcome))
-	if status != "FINALIZED" or outcome not in AGREED:
+	_surety.print_votes(transaction)
+	if status not in SUCCESS_STATES or outcome not in AGREED:
 		print("deploy did not finalise with validator agreement; nothing is written down.")
 		return 2
 

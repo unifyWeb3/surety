@@ -34,6 +34,8 @@ def main() -> int:
 	print("anchor_quote: %s" % covenant.get("anchor_quote"))
 	print("anchor_digest: %s" % covenant.get("anchor_digest"))
 	print("anchor_match: %s (coverage %s)" % (covenant.get("anchor_match"), covenant.get("anchor_coverage_band")))
+	print("anchor_text_digest: %s" % covenant.get("anchor_text_digest"))
+	print("  (sha256 of the whole normalized page this fetch returned; reproduce with scripts/page_digest.py)")
 	print("activated_by: %s" % covenant.get("activation_by"))
 	print("activated_at: %s" % covenant.get("activated_at"))
 	if covenant.get("status") == "ACTIVE":

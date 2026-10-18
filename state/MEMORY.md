@@ -199,6 +199,12 @@ asserted to take no arbitrary address; "verbatim" narrowed to "verbatim after no
 - **L2 no record of which bytes were read.** `anchor_text_digest` / `last_check_text_digest` now
   store `sha256(normalize(fetched text))`, validator-recomputed, so a reader can compare their own
   fetch with the contract's.
+- **L3 a literal breach could never be agreed.** `compare_check` demanded a non-empty `rule_span`
+  for every BREACH, but a literal breach has no span to cite, so the leader's truthful empty span
+  was rejected by every validator: two live checks came back `MAJORITY_DISAGREE` and stored
+  nothing. The rule kind now travels with the result and is compared; semantic breaches still need
+  a findable span, literal breaches must carry none. Fixed with four tests, one of which runs the
+  real validator closure — the gap was that direct mode runs the leader only.
 - **Observed cache lag.** After editing the gist, `curl` at the same URL returned the new text
   within a second while three consecutive on-chain checks still read the old text (identical
   `last_check_text_digest`, identical anchor digest). Written down in `state/DESIGN.md` §1 rather

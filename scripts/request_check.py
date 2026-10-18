@@ -39,6 +39,7 @@ def main() -> int:
 	print("quote still present: %s" % covenant.get("last_check_quote_present"))
 	print("anchor drifted: %s" % covenant.get("last_check_anchor_drifted"))
 	print("evidence digest: %s" % covenant.get("last_check_evidence_digest"))
+	print("page digest this check read: %s" % covenant.get("last_check_text_digest"))
 	print("rule span: %s" % covenant.get("last_check_rule_span"))
 	if covenant.get("breached_at"):
 		print("breached at: %s" % covenant.get("breached_at"))
