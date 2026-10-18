@@ -113,3 +113,60 @@ project — neither is a protocol.
 
 Written to `state/DESIGN.md` before any contract code. Nothing in Stage 1 repeats the research
 above; the design file is the deliverable.
+
+---
+
+# Build log (Stages 2-6)
+
+## genvm-lint — exact evidence
+`genvm-lint check contracts/surety.py` under `genvm-linter==0.10.0` (no `GENVMROOT`):
+```
+✓ Lint passed (3 checks)
+✗ Validation failed
+  Failed to load SDK: HTTP Error 404: Not Found
+EXIT=0
+```
+The 404 is on `genvm-universal.tar.xz`: the linter resolves the newest runner tag instead of
+honouring the contract's `Depends` pin. The supported alternative is `GENVMROOT`, which
+`sdk_loader.get_sdk_paths_from_genvmroot()` reads at
+`<root>/runners/py-lib-genlayer-std/src` (or `.../genlayer-py-std/src`). That path was pointed at
+the tree `gltest` had already extracted under `~/.cache/gltest-direct` — a symlink to existing
+artifacts, not a hand-seeded cache:
+```
+$ GENVMROOT=/tmp/opencode/genvmroot .venv/bin/genvm-lint check contracts/surety.py
+✓ Lint passed (3 checks)
+✓ Validation passed
+  Contract: Surety
+  Methods: 10 (7 view, 3 write)
+EXIT=0
+```
+**Which passed: both lint checks pass either way; only SDK validation needs `GENVMROOT`.**
+
+## Test harness facts learned (not guessable from the docs)
+- `gltest` direct mode loads the contract as the module `_contract_surety` and GenVM refuses a
+  second `gl.Contract` subclass in one process, so `import surety` inside a test raises
+  `TypeError: only one contract is allowed`. Pure helpers are reached through
+  `sys.modules["_contract_surety"]` (fixture `surety_mod`).
+- `VMContext.mock_web` matches with `re.search` and **the first registered match wins**, so a test
+  that changes the world between two calls must `clear_mocks()` first. `serve()` in the conftest
+  does exactly this, per observed world state.
+- `VMContext.run_validator()` exists and is the real deal: it replays the captured validator closure
+  against the mocks installed *at that moment*, and `leader_result=` injects a forged leader value.
+  The validator is therefore tested end to end, not only as pure functions.
+- **`VMContext.warp()` does not move `gl.message_raw["datetime"]`** — it only refreshes
+  `gl.message` (which has no datetime field at all) and the sender fields of `message_raw`. A test
+  that needs the transaction time to advance must set that one field itself; the `advance()`
+  conftest helper does, and says why in its docstring.
+- A promise whose *numbers* changed is refused as `REFUSED_PROMISE_ABSENT`, not accepted — the
+  token-coverage gate is measured on the promise text the owner wrote. An "already in breach at
+  activation" test therefore needs a page that still carries the promise *and* fires the rule.
+
+## Stage 3 findings that changed the contract
+See `state/DESIGN.md` §11. In short: two unreachable status constants deleted; `list_covenants`
+scan capped at 400 with the cap exposed in `stats()`; the empty-body/failed-fetch collapse
+documented and pinned as a refusal; the absence-breach record pair pinned; write signatures
+asserted to take no arbitrary address; "verbatim" narrowed to "verbatim after normalization".
+
+## Numbers at the end of Stage 3
+- `79 passed` (`.venv/bin/python -m pytest tests/direct/ -q`), 0 skips, 0 xfails.
+- `genvm-lint check`: 3 checks passed, validation passed, 10 methods (7 view, 3 write).

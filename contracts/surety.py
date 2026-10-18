@@ -46,14 +46,12 @@ STATUS_REFUSED_ABSENT = "REFUSED_PROMISE_ABSENT"
 STATUS_REFUSED_SUBJECT = "REFUSED_SUBJECT_ABSENT"
 STATUS_REFUSED_BREACH = "REFUSED_ALREADY_IN_BREACH"
 STATUS_REFUSED_UNREACHABLE = "REFUSED_SOURCE_UNREACHABLE"
-STATUS_REFUSED_UNSTABLE = "REFUSED_SOURCE_UNSTABLE"
 
 VERDICT_NONE = "NONE"
 VERDICT_NO_BREACH = "NO_BREACH"
 VERDICT_BREACH = "BREACH"
 VERDICT_PROMISE_ABSENT = "PROMISE_ABSENT"
 VERDICT_UNREACHABLE = "UNREACHABLE"
-VERDICT_UNSTABLE = "SOURCE_UNSTABLE"
 
 MATCH_VERBATIM = "VERBATIM"
 MATCH_EQUIVALENT = "EQUIVALENT"
@@ -78,6 +76,8 @@ MAX_QUOTE = 600
 MAX_SPAN = 400
 MAX_TEXT = 200_000
 MAX_BODY_SCAN = 400_000
+MAX_LIST_SCAN = 400
+MAX_LIST_RESULTS = 50
 
 MIN_COOLDOWN = 60
 MAX_COOLDOWN = 2_592_000  # 30 days
@@ -194,7 +194,13 @@ def normalize_text(raw: str) -> str:
 
 
 def text_of(status: int, body: object) -> str:
-	"""Decode a response body to normalized text. Returns "" for a failed fetch."""
+	"""Decode a response body to normalized text. Returns "" when there is no readable text.
+
+	Three situations collapse to the same empty string on purpose, because a contract cannot
+	tell them apart from the SDK: a non-2xx status, a body the transport could not deliver, and
+	a 2xx response that carried no text at all. The caller must therefore read "" as "nothing
+	was proven", never as "the source agreed". It is a refusal, and refusals change no verdict.
+	"""
 	if status < 200 or status >= 300:
 		return ""
 	if body is None:
@@ -1030,18 +1036,25 @@ class Surety(gl.Contract):
 
 	@gl.public.view
 	def list_covenants(self, owner: str) -> list:
-		"""Every covenant owned by one address, newest first. Bounded scan, capped output."""
+		"""Every covenant owned by one address, newest first.
+
+		The scan is bounded: it looks at the newest ``MAX_LIST_SCAN`` covenants and no further,
+		because an unbounded loop over growing storage is a read that eventually stops working.
+		Covenants older than that window are still readable one at a time by ``get_covenant``.
+		"""
 		target = (owner or "").strip().lower()
 		if _ADDR_RE.fullmatch(target) is None:
 			raise gl.vm.UserError("[EXPECTED] owner must be a 0x address")
 		out = []
+		scanned = 0
 		index = len(self.order) - 1
-		while index >= 0 and len(out) < 50:
+		while index >= 0 and len(out) < MAX_LIST_RESULTS and scanned < MAX_LIST_SCAN:
 			cid = self.order[index]
 			covenant = self.covenants.get(cid)
 			if covenant is not None and covenant.owner == target:
 				out.append(self._as_dict(covenant))
 			index -= 1
+			scanned += 1
 		return out
 
 	@gl.public.view
@@ -1093,6 +1106,8 @@ class Surety(gl.Contract):
 			"checks": int(self.check_count),
 			"min_cooldown_seconds": MIN_COOLDOWN,
 			"max_cooldown_seconds": MAX_COOLDOWN,
+			"list_scan_cap": MAX_LIST_SCAN,
+			"list_results_cap": MAX_LIST_RESULTS,
 			"network_value": "none: the bond is recorded, not held",
 		}
 
