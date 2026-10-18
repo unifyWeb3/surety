@@ -19,6 +19,12 @@ import {
 
 export const dynamic = "force-dynamic";
 
+// A read can take several seconds (Studio answered a single view in 3–11s when this was
+// measured) and the client makes one bounded retry on a transport failure, so the segment needs
+// more than a default serverless timeout to let that retry finish. Values are still only ever
+// read fresh: this app never renders a cached verdict.
+export const maxDuration = 30;
+
 export default async function CovenantPage({
 	params,
 }: {
@@ -65,7 +71,10 @@ export default async function CovenantPage({
 						written {stamp(c.created_at)} by {c.owner}
 					</span>
 				</div>
-				<h1>{c.subject} promises</h1>
+				<h1>{c.subject}</h1>
+				<p className="kicker" style={{ marginTop: "0.85rem" }}>
+					the promise, in the owner&rsquo;s words
+				</p>
 				<blockquote
 					style={{
 						margin: "1.25rem 0 0",
@@ -276,8 +285,18 @@ export default async function CovenantPage({
 											a page into a breach.
 										</p>
 									</>
+								) : c.last_check_evidence_digest === "" ? (
+									<>
+										<strong>Not computable.</strong> This check found no citation window to
+										digest — the promise was not anchored on the fetch it read — so there is
+										nothing to compare with the value recorded at activation.
+									</>
 								) : (
-									"None recorded for this check."
+									<>
+										<strong>No.</strong> The window carrying the promise still digests to the
+										value recorded at activation, so the words that were proven are the
+										words that are still there.
+									</>
 								)}
 							</dd>
 							<dt>Evidence digest</dt>

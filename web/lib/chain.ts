@@ -10,7 +10,17 @@ import { toCovenant, type Covenant, type RawStats, type Stats } from "./types";
 
 export type ReadResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
-const TIMEOUT_MS = 20_000;
+const TIMEOUT_MS = 12_000;
+
+/**
+ * Transport failures worth a second attempt.
+ *
+ * Studio's reads are slow (observed 3–11 seconds for a single view) and occasionally the socket
+ * dies mid-request. One bounded retry turns that into a page that loads. A *definite* answer is
+ * never retried: a contract error, or an address with no contract, is information, and asking
+ * again would be both wasteful and a way of hiding it.
+ */
+const RETRYABLE = /timeout|timed out|aborted|fetch failed|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|socket hang up|network/i;
 
 /** Human sentence for whatever the RPC threw, never an empty string and never a stack trace. */
 function explain(error: unknown): string {
@@ -19,10 +29,10 @@ function explain(error: unknown): string {
 		return "The configured address has no contract on this chain. Check NEXT_PUBLIC_SURETY_CONTRACT against the deployment you expect to be reading.";
 	}
 	if (/timeout|timed out|aborted/i.test(text)) {
-		return `No answer from the RPC within ${TIMEOUT_MS / 1000} seconds. The chain may be busy; the value shown is unknown, not zero.`;
+		return `No answer from the RPC within ${TIMEOUT_MS / 1000} seconds, twice. The chain may be busy; the value shown is unknown, not zero.`;
 	}
-	if (/fetch failed|ENOTFOUND|ECONNREFUSED|network/i.test(text)) {
-		return "The RPC could not be reached from this deployment. The value shown is unknown, not zero.";
+	if (RETRYABLE.test(text)) {
+		return "The RPC could not be reached from this deployment, twice. The value shown is unknown, not zero.";
 	}
 	return text.length > 400 ? `${text.slice(0, 400)}…` : text;
 }
@@ -48,15 +58,17 @@ async function client(config: Config) {
 }
 
 async function readView<T>(functionName: string, args: string[] = []): Promise<ReadResult<T>> {
-	const result = loadConfig();
-	if (!result.ok) {
-		return { ok: false, error: result.problem };
+	const loaded = loadConfig();
+	if (!loaded.ok) {
+		return { ok: false, error: loaded.problem };
 	}
-	try {
-		const rpc = await client(result.config);
-		const value = (await withTimeout(
+	const config = loaded.config;
+
+	async function attempt(): Promise<T> {
+		const rpc = await client(config);
+		return (await withTimeout(
 			rpc.readContract({
-				address: result.config.contract,
+				address: config.contract,
 				functionName,
 				// Every argument this app passes is a string: ids, addresses, decimal integers.
 				// The SDK's CalldataEncodable union is wider than that, and narrowing it here
@@ -64,9 +76,21 @@ async function readView<T>(functionName: string, args: string[] = []): Promise<R
 				args: args as never,
 			}),
 		)) as T;
-		return { ok: true, value };
-	} catch (error) {
-		return { ok: false, error: explain(error) };
+	}
+
+	try {
+		return { ok: true, value: await attempt() };
+	} catch (first) {
+		const message = first instanceof Error ? first.message : String(first);
+		if (!RETRYABLE.test(message)) {
+			return { ok: false, error: explain(first) };
+		}
+		// One retry, because the failure was transport-level rather than an answer.
+		try {
+			return { ok: true, value: await attempt() };
+		} catch (second) {
+			return { ok: false, error: explain(second) };
+		}
 	}
 }
 
@@ -104,7 +128,8 @@ export async function readLedger(offset = 0, limit = 24): Promise<ReadResult<str
 	return { ok: true, value: (raw.value ?? []).map((row) => String(row)) };
 }
 
-export async function readCovenantsOf(owner: string): Promise<ReadResult<Covenant[]>> {	const raw = await readView<Record<string, unknown>[]>("list_covenants", [owner]);
+export async function readCovenantsOf(owner: string): Promise<ReadResult<Covenant[]>> {
+	const raw = await readView<Record<string, unknown>[]>("list_covenants", [owner]);
 	if (!raw.ok) return raw;
 	try {
 		return { ok: true, value: (raw.value ?? []).map(toCovenant) };

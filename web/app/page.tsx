@@ -9,6 +9,12 @@ import { shortHex, stamp } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
+// A read can take several seconds (Studio answered a single view in 3–11s when this was
+// measured) and the client makes one bounded retry on a transport failure, so the segment needs
+// more than a default serverless timeout to let that retry finish. Values are still only ever
+// read fresh: this app never renders a cached verdict.
+export const maxDuration = 30;
+
 export default function HomePage() {
 	const config = loadConfig();
 

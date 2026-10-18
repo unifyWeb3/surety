@@ -373,9 +373,12 @@ hr {
 
 /* ------------------------------------------------------------------ provenance chain */
 
+/* The provenance strip. Four steps sit side by side on a wide screen; below that they pair up,
+   and below 720px they stack. The borders have to follow the row, so each breakpoint names which
+   cells start a row. Nothing here is decorative: a clipped digest would be unreadable evidence. */
 .chain {
 	display: grid;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
+	grid-template-columns: repeat(4, minmax(0, 1fr));
 	border: 1px solid var(--rule-strong);
 	background: var(--paper-raised);
 }
@@ -384,6 +387,7 @@ hr {
 	padding: calc(var(--step) * 1.5);
 	border-left: 1px solid var(--rule);
 	position: relative;
+	min-width: 0;
 }
 
 .chain > div:first-child {
@@ -406,11 +410,12 @@ hr {
 	line-height: 1.45;
 }
 
+/* anywhere, not break-all: a long URL still breaks, but at its own slashes and dashes when it can,
+   and a 64-character digest breaks because it must. */
 .chain .machine {
 	font-family: var(--mono);
 	font-size: 0.76rem;
 	overflow-wrap: anywhere;
-	word-break: break-all;
 }
 
 .chain .arrow {
@@ -421,6 +426,25 @@ hr {
 	color: var(--rule-strong);
 	font-family: var(--mono);
 	font-size: 0.8rem;
+}
+
+@media (max-width: 1080px) {
+	.chain {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.chain > div:nth-child(odd) {
+		border-left: 0;
+	}
+
+	.chain > div:nth-child(n + 3) {
+		border-top: 1px solid var(--rule);
+	}
+
+	/* The arrows point along a row. With two rows there is no single line to point along. */
+	.chain .arrow {
+		display: none;
+	}
 }
 
 @media (max-width: 720px) {
@@ -435,10 +459,6 @@ hr {
 
 	.chain > div:first-child {
 		border-top: 0;
-	}
-
-	.chain .arrow {
-		display: none;
 	}
 }
 
