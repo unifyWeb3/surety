@@ -60,8 +60,26 @@ cannot afford.
 
 ## What is verified, and how
 
-The app was loaded in a real browser against the live contract, against an empty configuration, and
-against an address with no contract at it; the failures it renders were produced by actually doing
-that, not by describing them. It has not been loaded against a covenant in every status, so the
-status vocabulary is exhaustive by construction (an unrecognised status throws instead of being
-displayed) rather than by having observed each one live.
+The app was loaded in a real browser against the live contract, and the two failure modes were
+produced by actually doing them rather than by describing them: a dev server started with an empty
+configuration (it renders "no chain configuration … showing an unconfigured register as an empty one
+would be a lie"), and one started with an address that has no contract (it renders the read failure,
+with the RPC's own words, and states that nothing was substituted). The deployed instance was then
+loaded in the same browser and read the live contract. It has not been loaded against a covenant in
+every status, so the status vocabulary is exhaustive by construction (an unrecognised status throws
+instead of being displayed) rather than by having observed each one live.
+
+## Deployment
+
+| | |
+|---|---|
+| Project | `surety`, Vercel scope `oxunify` |
+| URL | `https://surety-oxunify.vercel.app` (project alias, tracks the latest production deploy) |
+| Variables | `NEXT_PUBLIC_GENLAYER_RPC_URL` and `NEXT_PUBLIC_SURETY_CONTRACT` set as **Production** project variables; no secrets exist to set |
+| Protection | Deployment protection's Vercel Authentication was turned off for this project, so the register is publicly readable |
+
+`vercel.json` declares `"framework": "nextjs"`. It is not decoration: the project was created from
+the CLI without a framework preset, and without the declaration the deploy failed with
+`The Output Directory "public" is empty.` after a successful build. Recording it in the repository
+means the next deploy from this directory cannot repeat that.
+
