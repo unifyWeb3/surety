@@ -82,7 +82,7 @@ instead of being displayed) rather than by having observed each one live.
 | | |
 |---|---|
 | Project | `surety`, Vercel scope `oxunify` |
-| URL | `https://surety-oxunify.vercel.app` (project alias, tracks the latest production deploy) |
+| URL | `https://surety-oxunify.vercel.app` (project alias, tracks the latest production deploy); the production URL of the current deploy is `https://surety-three.vercel.app` |
 | Variables | `NEXT_PUBLIC_GENLAYER_RPC_URL` and `NEXT_PUBLIC_SURETY_CONTRACT` set as **Production** project variables; no secrets exist to set |
 | Protection | Deployment protection's Vercel Authentication was turned off for this project, so the register is publicly readable |
 
@@ -90,4 +90,23 @@ instead of being displayed) rather than by having observed each one live.
 the CLI without a framework preset, and without the declaration the deploy failed with
 `The Output Directory "public" is empty.` after a successful build. Recording it in the repository
 means the next deploy from this directory cannot repeat that.
+
+## The tests
+
+```bash
+npm test
+```
+
+`tsc -p tsconfig.test.json` compiles `web/tests/`, `web/lib/status.ts`, `web/lib/commands.ts`,
+`web/lib/format.ts`, `web/lib/types.ts` and `web/components/NothingCited.tsx` to CommonJS in
+`.test-build/`, and `node --test` runs the result. Node's built-in runner, no new dependency; the
+Node in this image is not built with TypeScript support, so the tests are compiled rather than
+run from source.
+
+What they pin: every contract status maps to the right terminal / can-activate flags, no terminal
+status ever yields an activate or a check command, the only activatable status is
+`AWAITING_ACTIVATION` and the only checkable one is `ACTIVE`, an unknown status fails closed, and
+the status list in `web/lib/status.ts` is exactly the set of constants parsed out of
+`contracts/surety.py` — so a contract change cannot silently desync the page.
+
 
