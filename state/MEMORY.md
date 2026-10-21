@@ -21,7 +21,6 @@ latest state. `README.md` at the repository root is the front door.
 ---
 
 ## Stage 0 — research (what was confirmed, and where)
-
 Everything below was read from the installed sources or the live docs, not from memory.
 
 ### Runner pin and SDK surface
@@ -220,3 +219,75 @@ asserted to take no arbitrary address; "verbatim" narrowed to "verbatim after no
   `literal-present:` was meant) was refused at activation as `REFUSED_ALREADY_IN_BREACH`, so it
   could not sit on the live contract looking compliant. The composer on `/new` states the
   direction in plain words for the same reason.
+
+---
+
+# Stage 7 — the refusal fix (steward feedback)
+
+## What the feedback was, and the decision
+
+The covenant page said "Retrying activation is allowed and costs nothing" and printed the activate
+command for a covenant the contract had already refused. The contract has no such transition:
+`activate` accepts only `AWAITING_ACTIVATION` (`surety.py:843-844`) and `request_check` only
+`ACTIVE` (`surety.py:963-964`), and nothing writes `STATUS_AWAITING` except `create_covenant`.
+
+**Decision (already made by the steward): do not change `contracts/surety.py`.** The deployed
+contract at `0x45BCF7584F706835562C37Fd821C08748667Ce5f` is byte-identical to the repo file and
+must stay that way. So: fix the page, fix the docs, and add tests.
+
+## Findings written before any change
+
+`state/DESIGN-refusal.md` — every refusal status with the lines that make it terminal, the
+activate guard, and every place in `web/`, the scripts and the docs that implied a retry (W1–W14).
+Two of those (W12 `error.tsx`'s "Try again", W13 `chain.ts`'s one bounded transport retry) are
+**not** covenant recovery paths and were deliberately left alone; the file says so.
+
+## What was built
+
+- `web/lib/status.ts` — one table, one function. `statusView(status)` returns
+  `{terminal, canActivate, message}`; `canRequestCheck(status)` reads the same table. Unknown
+  statuses fail closed: no command, no claim. The status list is compared against the constants
+  parsed out of `contracts/surety.py` by the web test.
+- `web/lib/commands.ts` — the raw `activateCommand` is **no longer exported**. `activateCommandFor`
+  and `checkCommandFor` return `null` for any status the contract would refuse, so a page cannot
+  build a command the contract would reject.
+- `web/components/NothingCited.tsx` — the empty-citation state, built from that gate.
+- `web/lib/format.ts` — `statusSentence` deleted, so there is no second wording to drift.
+  `toneOf` became a `Record<CovenantStatus, Tone>`, so a new status is a compile error.
+- Docs: `README.md` (both places), `state/DESIGN.md` §3, `web/README.md`,
+  `scripts/activate_covenant.py` (prints that a refusal is final).
+
+## Harness facts learned in this session (not guessable)
+
+- Node 22.22.1 in this image is **not** built with TypeScript support
+  (`node --experimental-strip-types` → `ERR_NO_TYPESCRIPT`, `process.features.typescript` is
+  `false`). So the web suite compiles with `tsc -p tsconfig.test.json` (CommonJS, outDir
+  `.test-build`) and runs on `node --test ".test-build/tests/*.test.js"`. `node --test <dir>` does
+  **not** work in this Node build — it tries to `require` the directory. The glob form works.
+- `tsc` must be run as `web/node_modules/.bin/tsc`; plain `npx tsc` installs the unrelated `tsc`
+  package from npm and prints "This is not the tsc command you are looking for".
+- ESLint picked up the compiled `.test-build/**` output; `web/eslint.config.mjs` now ignores it.
+  The one remaining lint error (`app/new/Composer.tsx`, `react-hooks/set-state-in-effect`) is
+  pre-existing — 27 before, 27 with the change stashed.
+- `next dev` blocks cross-origin HMR from `127.0.0.1`, so the browser check was run against
+  `next build && next start` (production) instead, where there is no HMR noise.
+- Chromium is at `/root/.cache/ms-playwright/chromium-1248/chrome-linux-arm64/chrome`; the
+  `playwright` npm package is installed in `/root/browser-tool` (not in the repo).
+- `genlayer-js` reads the chain from a plain `createClient({endpoint})`; `readContract` with
+  `{address, functionName, args}` works, and Studio occasionally answers `fetch failed` on the
+  first call of a burst — retrying works.
+- `scripts/read_covenant.py` needs `SURETY_DEPLOYER_KEY` even for a read (it builds a client with
+  an account), so live reads in this session used `genlayer-js` directly.
+
+## Numbers at the end of Stage 7
+
+- Contract suite: **97 passed, 0 skipped** (91 before + 6 new in
+  `tests/direct/test_refusal_terminal.py`).
+- Web suite: **20 passed, 0 skipped** (`web/tests/`, node's built-in runner).
+- `tsc --noEmit` clean; `next build` clean; `genvm-lint check` unchanged (3 checks + validation +
+  10 methods via `GENVMROOT`).
+- Red state, measured in a `git worktree` of the pre-fix commit: the new web suite failed 6 of 6
+  and exited 1; the new contract suite passed 6 of 6 against the unchanged contract. That is the
+  point — the contract was already terminal and only the page was wrong.
+- Browser: the refused covenant on the live deployment, in Chromium at 1280×900 and 390×844, with
+  no retry text and no activate command; the BREACHED covenant unchanged.

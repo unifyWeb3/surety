@@ -41,6 +41,13 @@ def main() -> int:
 	if covenant.get("status") == "ACTIVE":
 		print("")
 		print("next: python scripts/request_check.py --id %s" % args.id)
+	elif str(covenant.get("status", "")).startswith("REFUSED_"):
+		print("")
+		print(
+			"this refusal is final: the contract accepts activate() only for a covenant that is "
+			"AWAITING_ACTIVATION, so this one cannot be activated or retried. The way forward is a "
+			"new covenant: python scripts/create_covenant.py"
+		)
 	return 0 if covenant.get("status") == "ACTIVE" else 1
 
 

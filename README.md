@@ -45,7 +45,12 @@ the party who recorded it:
    owner-declared subject is inside that quote. Only then does the covenant become `ACTIVE`, with the
    anchor fields written. Otherwise it becomes a durable refusal status, readable forever:
    `REFUSED_PROMISE_ABSENT`, `REFUSED_SUBJECT_ABSENT`, `REFUSED_ALREADY_IN_BREACH`,
-   `REFUSED_SOURCE_UNREACHABLE`. A URL that is not `https`, has userinfo, a fragment, an IP host or
+   `REFUSED_SOURCE_UNREACHABLE`. **All four refusals are terminal**: `activate` accepts only
+   `AWAITING_ACTIVATION` (`[EXPECTED] covenant is not awaiting activation`) and `request_check`
+   accepts only `ACTIVE` (`[EXPECTED] covenant is not active`), and no method moves a covenant back
+   to `AWAITING_ACTIVATION`. A refused covenant therefore cannot be activated, retried or checked
+   again; the way forward is a new covenant, whose id is derived from a new (owner, label) pair. A
+   URL that is not `https`, has userinfo, a fragment, an IP host or
    an unlisted host is rejected before any fetch happens.
 3. **Check** — `request_check(covenant_id)`, permissionless and rate limited by the owner's cooldown
    (refused with `[EXPECTED] check cooldown has not elapsed (n of m seconds)`). The check fetches
@@ -122,7 +127,8 @@ Two covenants were run end to end against a real gist whose promise was later co
 - `61a57de7…2677d64` — a promise ("We publish a signed audited financial statement every
   quarter.") that was never in the source. Validators agreed it was not there:
   `REFUSED_PROMISE_ABSENT`, `is_active false`, no anchor quote and no anchor digest. It could not be
-  made active by asking.
+  made active by asking: the status is terminal, and a further `activate` is refused with
+  `[EXPECTED] covenant is not awaiting activation`. The way forward is a new covenant.
 
 ### Learned live, and fixed with tests
 
@@ -146,9 +152,10 @@ promise that is really in the source; refusal of a promise that is not; a litera
 by validators with a page digest matching an independent fetch; a check on an inactive covenant
 being refused with no state change.
 
-**Proven only by the direct-mode suite** (91 tests, 0 skips): the `semantic:` path and its span rule;
+**Proven only by the direct-mode suite** (97 tests, 0 skips): the `semantic:` path and its span rule;
 `absence_is_breach`; the cooldown refusal; `UNREACHABLE` and `PROMISE_ABSENT` verdicts; the
-subject-absent refusal; list caps; every refusal paired with a positive control; and the boundary
+subject-absent refusal; list caps; every refusal paired with a positive control; that every
+activation refusal is terminal (`tests/direct/test_refusal_terminal.py`); and the boundary
 conditions of validation. Live coverage of a semantic rule has **not** been run, so no claim is made
 that a real validator set has ever agreed on one. The suite reaches validator code by replaying the
 captured validator closure against mocks (`tests/direct/test_validators.py`,
@@ -158,8 +165,11 @@ how L3 survived a green suite.
 ## Run it
 
 ```bash
-# tests — 91 passed
+# tests — 97 passed
 .venv/bin/python -m pytest tests/direct/ -q
+
+# the reader's own tests — 20 passed (node's built-in runner, no extra dependency)
+cd web && npm install && npm test
 
 # lint and SDK validation
 .venv/bin/genvm-lint check contracts/surety.py
@@ -193,6 +203,14 @@ rather than shown as an empty register, and a failed read is shown as a failed r
 zero. It does not proxy covenant sources through a server, which would be an SSRF surface; a reader
 who wants to check a digest themselves runs `scripts/page_digest.py`.
 
+The reader also refuses to offer a command the contract would reject. Every activation refusal is
+terminal, so a refused covenant page shows the reason in plain words, says the covenant cannot be
+activated or retried, points at writing a new covenant, and shows **no** activate command. The
+activate command is rendered for `AWAITING_ACTIVATION` only, the one status `activate` accepts. The
+whole decision is one pure function, `statusView` in `web/lib/status.ts`, whose status list is
+checked against the constants parsed from `contracts/surety.py` by the web test, so a contract
+change cannot silently desync the page.
+
 `npm audit` reports 5 high-severity advisories, all in dev-only ESLint tooling. They are deliberately
 not fixed: `npm audit fix --force` resolves them by downgrading `eslint-config-next` to 14.x.
 
@@ -203,4 +221,6 @@ not fixed: `npm audit fix --force` resolves them by downgrading `eslint-config-n
 - `scripts/` — key generation, deploy, create/activate/check/read, code and page digests.
 - `web/` — the reader and the covenant composer.
 - `state/DESIGN.md` — the design, the red-team table, and the adversarial self-review findings.
+- `state/DESIGN-refusal.md` — the refusal findings: every terminal status, every place that
+  implied a retry, and what was changed.
 - `state/MEMORY.md` — the build log: what was learned, and what was wrong earlier.

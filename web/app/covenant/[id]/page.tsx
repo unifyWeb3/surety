@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { Chain } from "@/components/Chain";
 import { Copy } from "@/components/Copy";
+import { NothingCited } from "@/components/NothingCited";
 import { Notice, ReadFailure } from "@/components/Notice";
 import { Stamp, VerdictStamp } from "@/components/Stamp";
 import { readCovenant } from "@/lib/chain";
-import { activateCommand, checkCommand, readCommand } from "@/lib/commands";
+import { checkCommandFor, readCommand } from "@/lib/commands";
 import { loadConfig } from "@/lib/config";
 import {
 	atto,
@@ -13,9 +14,9 @@ import {
 	ruleSentence,
 	shortHex,
 	stamp,
-	statusSentence,
 	verdictSentence,
 } from "@/lib/format";
+import { statusView } from "@/lib/status";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,7 @@ export default async function CovenantPage({
 	}
 
 	const c = result.value;
+	const status = statusView(c.status);
 	const bond = atto(c.bond_declared_atto);
 	const received = atto(c.bond_sent_atto);
 	const verdictChangedByAbsence =
@@ -88,8 +90,15 @@ export default async function CovenantPage({
 					{c.promise_text}
 				</blockquote>
 				<p className="dim" style={{ marginTop: "1.25rem" }}>
-					{statusSentence(c.status)}
+					{status.message}
 				</p>
+				{status.terminal ? (
+					<p style={{ marginTop: "0.75rem" }}>
+						<Link href="/new" className="mono small">
+							→ write a new covenant
+						</Link>
+					</p>
+				) : null}
 			</section>
 
 			<section className="section">
@@ -188,26 +197,7 @@ export default async function CovenantPage({
 					quote={c.anchor_quote}
 					digest={c.anchor_digest}
 					pageDigest={c.anchor_text_digest}
-					empty={
-						c.status === "AWAITING_ACTIVATION" ? (
-							<p className="dim">
-								Nothing has been cited yet because activation has not run. Until it does,
-								this covenant watches nothing. Any address may run it:
-								<code className="mono small break" style={{ display: "block", marginTop: 8 }}>
-									{activateCommand(c.covenant_id)}
-								</code>
-							</p>
-						) : (
-							<p className="dim">
-								Nothing was cited, because nothing was proven. An activation refusal stores no
-								quote and no digest — a refusal is not evidence, and this contract does not
-								pretend otherwise. Retrying activation is allowed and costs nothing:
-								<code className="mono small break" style={{ display: "block", marginTop: 8 }}>
-									{activateCommand(c.covenant_id)}
-								</code>
-							</p>
-						)
-					}
+					empty={<NothingCited status={c.status} covenantId={c.covenant_id} />}
 				/>
 				{c.anchor_digest !== "" ? (
 					<dl className="deflist" style={{ marginTop: "1.75rem" }}>
@@ -348,8 +338,8 @@ export default async function CovenantPage({
 						source again, recomputes the citation and the digest, and applies the owner&rsquo;s
 						rule.
 					</p>
-					{c.status === "ACTIVE" ? (
-						<p className="mono small break">{checkCommand(c.covenant_id)}</p>
+					{checkCommandFor(c.status, c.covenant_id) !== null ? (
+						<p className="mono small break">{checkCommandFor(c.status, c.covenant_id)}</p>
 					) : (
 						<p className="dim">
 							This covenant is not active, so a check cannot be asked for. Only an ACTIVE

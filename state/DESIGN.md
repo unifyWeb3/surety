@@ -176,7 +176,7 @@ create_covenant ──► AWAITING_ACTIVATION
       ┌─────────────────┼───────────────┬──────────────────────┬───────────────────────┐
       ▼                 ▼               ▼                      ▼                       ▼
    ACTIVE     REFUSED_PROMISE_ABSENT  REFUSED…_SUBJECT_ABSENT  REFUSED_ALREADY_IN_BREACH  REFUSED_SOURCE_UNREACHABLE
-      │ (terminal)
+      │            (all four terminal: no activate, no check)
       │ request_check()  [permissionless, cooldown-gated]
       ▼
   NO_BREACH (stays ACTIVE)  |  BREACH (terminal)  |  PROMISE_ABSENT → BREACH if absence_is_breach,
@@ -186,8 +186,16 @@ create_covenant ──► AWAITING_ACTIVATION
 
 - `is_active()` is true **only** for `status == "ACTIVE"`. A refused activation is a durable,
   readable record, not a silent no-op — the caller learns *why*.
-- `BREACHED` is terminal. Further `request_check` calls revert with `[EXPECTED] covenant already
-  breached`, so a breach verdict cannot be overwritten by a later good day.
+- **Every activation refusal is terminal.** The four `REFUSED_*` statuses have no outgoing edge:
+  `activate` accepts only `AWAITING_ACTIVATION` (`surety.py:843-844`,
+  `[EXPECTED] covenant is not awaiting activation`) and `request_check` accepts only `ACTIVE`
+  (`surety.py:963-964`, `[EXPECTED] covenant is not active`). Nothing writes
+  `STATUS_AWAITING` except `create_covenant` on a new record, so a refused covenant cannot be
+  activated, retried or checked again. The only way forward is a new covenant, whose id is
+  `sha256(owner + "|" + label)` and therefore differs for a new label.
+- `BREACHED` is terminal. Further `request_check` calls revert with `[EXPECTED] covenant is not
+  active` (the status is no longer `ACTIVE`), so a breach verdict cannot be overwritten by a later
+  good day.
 - Every state-changing path is single-entry: `activate` requires `AWAITING_ACTIVATION`,
   `request_check` requires `ACTIVE`.
 

@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "outDir": ".test-build",
+    "rootDir": ".",
+    "types": ["node"],
+    "sourceMap": false
+  },
+  "include": [
+    "tests/**/*.ts",
+    "tests/**/*.tsx",
+    "lib/status.ts",
+    "lib/commands.ts",
+    "lib/format.ts",
+    "lib/types.ts",
+    "components/NothingCited.tsx"
+  ],
+  "exclude": ["node_modules", ".next", ".test-build"]
+}

@@ -5,14 +5,9 @@
  * exhaustive about them instead of falling back to a generic badge.
  */
 
-export type CovenantStatus =
-	| "AWAITING_ACTIVATION"
-	| "ACTIVE"
-	| "BREACHED"
-	| "REFUSED_PROMISE_ABSENT"
-	| "REFUSED_SUBJECT_ABSENT"
-	| "REFUSED_ALREADY_IN_BREACH"
-	| "REFUSED_SOURCE_UNREACHABLE";
+import { isCovenantStatus, type CovenantStatus } from "./status";
+
+export type { CovenantStatus };
 
 export type Verdict = "NONE" | "NO_BREACH" | "BREACH" | "PROMISE_ABSENT" | "UNREACHABLE";
 
@@ -82,18 +77,7 @@ export type Stats = {
 	networkValue: string;
 };
 
-const STATUSES: CovenantStatus[] = [
-	"AWAITING_ACTIVATION",
-	"ACTIVE",
-	"BREACHED",
-	"REFUSED_PROMISE_ABSENT",
-	"REFUSED_SUBJECT_ABSENT",
-	"REFUSED_ALREADY_IN_BREACH",
-	"REFUSED_SOURCE_UNREACHABLE",
-];
-
 const VERDICTS: Verdict[] = ["NONE", "NO_BREACH", "BREACH", "PROMISE_ABSENT", "UNREACHABLE"];
-
 function text(value: unknown, field: string): string {
 	if (typeof value === "string") return value;
 	if (value === null || value === undefined) {
@@ -114,8 +98,8 @@ function yes(value: unknown): boolean {
  * cannot name a status must not show the row as if it had understood it.
  */
 export function toCovenant(raw: Record<string, unknown>): Covenant {
-	const status = text(raw.status, "status") as CovenantStatus;
-	if (!STATUSES.includes(status)) {
+	const status = text(raw.status, "status");
+	if (!isCovenantStatus(status)) {
 		throw new Error(`unrecognised status "${status}"`);
 	}
 	const verdict = text(raw.last_check_verdict ?? "NONE", "last_check_verdict") as Verdict;

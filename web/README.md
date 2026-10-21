@@ -49,6 +49,14 @@ cannot afford.
 - `beneficiary` is labelled as the owner's declaration, because that is all it is.
 - The bond is labelled as recorded, never held. There is no payout path in the contract.
 - A failed read is shown as a failed read, with the RPC's own words.
+- **No command is offered that the contract would refuse.** The activate command is rendered for
+  `AWAITING_ACTIVATION` only. Every activation refusal is terminal — the contract accepts
+  `activate` only for `AWAITING_ACTIVATION` and `request_check` only for `ACTIVE` — so a refused
+  covenant shows the reason in plain words, says it cannot be activated or retried, and offers no
+  activate command. The decision is one pure function, `statusView` in `web/lib/status.ts`; its
+  status list is compared with the constants parsed from `contracts/surety.py` in
+  `web/tests/status.test.ts`, so a contract change cannot silently desync the page. Unknown
+  statuses fail closed: no command, no claim.
 - Two digests are shown, and they are not the same claim. The **quote** digest is what the decision
   rests on. The **page** digest (`anchor_text_digest`, `last_check_text_digest`) is the whole text a
   fetch actually returned, and it decides nothing — it exists so you can fetch the same URL yourself

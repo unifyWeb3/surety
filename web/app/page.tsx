@@ -170,7 +170,8 @@ async function LiveStats() {
 			<p className="dim small">
 				Refusals are counted separately from breaches on purpose. A refusal means nothing could
 				be proven — an unreachable source, a promise that was not in the page. It is not an
-				accusation and changes no verdict.
+				accusation and changes no verdict. It is also final: a refused covenant is a closed
+				record, and the way forward is a new covenant.
 			</p>
 		</div>
 	);

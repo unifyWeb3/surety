@@ -1,4 +1,4 @@
-import { statusSentence, toneOf } from "@/lib/format";
+import { toneOf } from "@/lib/format";
 import type { CovenantStatus, Verdict } from "@/lib/types";
 import type { Tone } from "@/lib/format";
 
@@ -31,6 +31,3 @@ export function VerdictStamp({ verdict, size = "sm" }: { verdict: Verdict; size?
 	);
 }
 
-export function StatusLine({ status }: { status: CovenantStatus }) {
-	return <p className="dim">{statusSentence(status)}</p>;
-}

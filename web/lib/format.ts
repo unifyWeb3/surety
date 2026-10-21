@@ -38,17 +38,24 @@ export function atto(value: string): { gen: string; atto: string } {
 
 export type Tone = "awaiting" | "active" | "refused" | "breached" | "plain";
 
+/**
+ * The tone of a status seal.
+ *
+ * A record, not a switch, so adding a status to the contract's list makes this a compile
+ * error until the new status is given a tone. A switch would silently fall through.
+ */
+const TONE_OF: Record<CovenantStatus, Tone> = {
+	ACTIVE: "active",
+	BREACHED: "breached",
+	AWAITING_ACTIVATION: "awaiting",
+	REFUSED_PROMISE_ABSENT: "refused",
+	REFUSED_SUBJECT_ABSENT: "refused",
+	REFUSED_ALREADY_IN_BREACH: "refused",
+	REFUSED_SOURCE_UNREACHABLE: "refused",
+};
+
 export function toneOf(status: CovenantStatus): Tone {
-	switch (status) {
-		case "ACTIVE":
-			return "active";
-		case "BREACHED":
-			return "breached";
-		case "AWAITING_ACTIVATION":
-			return "awaiting";
-		default:
-			return "refused";
-	}
+	return TONE_OF[status] ?? "plain";
 }
 
 export function verdictTone(verdict: Verdict): Tone {
@@ -66,26 +73,7 @@ export function verdictTone(verdict: Verdict): Tone {
 	}
 }
 
-/** One plain sentence per status, so a reader never has to decode an enum. */
-export function statusSentence(status: CovenantStatus): string {
-	switch (status) {
-		case "AWAITING_ACTIVATION":
-			return "Nobody has proved the promise is in the source yet. Nothing is being watched.";
-		case "ACTIVE":
-			return "Validators found the promise in the pinned source. Anyone may now ask for a re-check.";
-		case "BREACHED":
-			return "A check found the owner's own rule broken. This status is permanent.";
-		case "REFUSED_PROMISE_ABSENT":
-			return "An activation attempt could not find the promise in the source, so the covenant never went active.";
-		case "REFUSED_SUBJECT_ABSENT":
-			return "An activation attempt did not find the subject named in the source, so the covenant never went active.";
-		case "REFUSED_ALREADY_IN_BREACH":
-			return "The source already broke the owner's own rule at the moment of activation, so the covenant never went active.";
-		case "REFUSED_SOURCE_UNREACHABLE":
-			return "The source could not be read at activation time. Nothing was proven either way.";
-	}
-}
-
+/** One plain sentence per verdict, so a reader never has to decode an enum. */
 export function verdictSentence(verdict: Verdict): string {
 	switch (verdict) {
 		case "NONE":
